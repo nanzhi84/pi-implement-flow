@@ -69,9 +69,13 @@ for (const scenario of names.filter(name => ['push-not-sent', 'push-read-not-sta
       assert.equal(f.pulls().length, 0); assert.equal(f.fixed.requests.length, 0);
       assert.match(await f.pi.flow('status'), /stopping/);
     } else {
-      assert.match(output, /REMOTE_RESULT_UNKNOWN/); assert.equal(fault.applied.length, 1);
+      if (scenario === 'pr-read-orphaned') {
+        if (output.includes('PROCESS_UNQUIESCED:')) assert.match(output, /"kind":"unquiesced"/);
+        else { assert.match(output, /REMOTE_RESULT_UNKNOWN/); assert.match(output, /COMMAND_ORPHANED/); }
+        assert.equal(fault.queryAttempts, 1);
+      } else assert.match(output, /REMOTE_RESULT_UNKNOWN/);
+      assert.equal(fault.applied.length, 1);
       assert.ok(fault.queryAttempts >= 1, 'the exact post-write read fault was reached');
-      if (scenario === 'pr-read-orphaned') { assert.match(output, /COMMAND_ORPHANED/); assert.equal(fault.queryAttempts, 1); }
       const pr = ticketPull(f);
       assert.equal(pr.merged, scenario === 'merge-read-unavailable');
       if (pr.merged) assert.equal(featureSha(f), pr.merge_commit_sha);
@@ -132,7 +136,10 @@ for (const scenario of names.filter(name => name.startsWith('derived-'))) {
       assert.equal(children.length, 2); assert.equal(children.filter(item => item.number === number).length, 1);
     } else if (scenario === 'derived-association-drift') {
       assert.match(output, /DERIVED_STOPPED: REMOTE_RESULT_UNKNOWN/); assert.equal(children.length, 2);
-      assert.equal(children.find(item => item.number === fault.applied[0].number)?.state, 'closed');
+      const child = children.find(item => item.number === fault.applied[0].number);
+      assert.equal(child?.id, fault.applied[0].id); assert.equal(child?.state, 'closed');
+      assert.notEqual(child.number, f.spec.number); assert.notEqual(child.number, f.ticket.number);
+      assert.equal(api(`repos/${repository}/issues/${child.number}`).state_reason, 'not_planned');
     } else {
       assert.match(output, /DERIVED_STOPPED: REMOTE_RESULT_UNKNOWN/); assert.equal(children.length, 1);
       const orphan = api(`repos/${repository}/issues/${fault.applied[0].number}`);

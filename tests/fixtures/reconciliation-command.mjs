@@ -56,11 +56,24 @@ try {
 } catch { /* A successful CLI need not return JSON. */ }
 if (mode === 'derived-association-drift') {
   const repo = 'nanzhi84/pi-implement-flow-reconciliation-acceptance';
-  const created = JSON.parse(result.stdout);
-  if (!Number.isSafeInteger(created.number) || created.number < 1 || created.html_url !== `https://github.com/${repo}/issues/${created.number}`) process.exit(97);
-  const changed = run('gh', ['api', `repos/${repo}/issues/${created.number}`, '--method', 'PATCH', '-f', 'state=closed', '-f', 'state_reason=not_planned']);
-  if (changed.status !== 0 || JSON.parse(changed.stdout).state !== 'closed') process.exit(98);
-  fact.number = created.number;
+  const childId = Number(/^associate:(\d+)$/.exec(key)?.[1]);
+  const endpoint = args.find(arg => new RegExp(`^repos/${repo}/issues/\\d+/sub_issues$`).test(arg));
+  const parent = JSON.parse(result.stdout);
+  if (!Number.isSafeInteger(childId) || childId < 1 || !endpoint
+    || endpoint !== `repos/${repo}/issues/${parent.number}/sub_issues` || parent.id === childId) process.exit(97);
+  const listed = run('gh', ['api', endpoint]);
+  if (listed.status !== 0) process.exit(98);
+  const matches = JSON.parse(listed.stdout).filter(item => item.id === childId);
+  if (matches.length !== 1) process.exit(97);
+  const child = matches[0];
+  if (!Number.isSafeInteger(child.number) || child.number < 1 || child.number === parent.number
+    || child.html_url !== `https://github.com/${repo}/issues/${child.number}` || child.state !== 'open') process.exit(97);
+  const changed = run('gh', ['api', `repos/${repo}/issues/${child.number}`, '--method', 'PATCH', '-f', 'state=closed', '-f', 'state_reason=not_planned']);
+  if (changed.status !== 0) process.exit(98);
+  const closed = JSON.parse(changed.stdout);
+  if (closed.id !== childId || closed.number !== child.number || closed.state !== 'closed' || closed.state_reason !== 'not_planned') process.exit(98);
+  fact.number = child.number;
+  fact.id = childId;
 }
 applied(fact);
 if (mode === 'push-read-not-started') { process.stdout.write(result.stdout); process.exit(0); }
