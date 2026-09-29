@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "commands": {
+    "prepare": ["node", "fixture.mjs", "prepare"],
+    "cleanup": ["node", "fixture.mjs", "cleanup"],
+    "check": ["node", "fixture.mjs", "check"],
+    "accept": ["node", "fixture.mjs", "accept"],
+    "publish": ["node", "fixture.mjs", "publish"]
+  },
+  "commandTimeoutMs": 30000,
+  "resources": { "mode": "exclusive", "description": "Only one fixture task at a time; all data in FLOW_RESOURCE_DIR" },
+  "artifacts": { "destination": "GitHub release assets in the acceptance repository", "retentionDays": 90 },
+  "agents": {
+    "implementation": { "tools": ["read", "edit", "write", "bash"], "extensions": [], "instructions": ["AGENTS.md"] },
+    "review": { "tools": ["read", "grep", "find", "ls"], "extensions": [], "instructions": ["AGENTS.md"], "isolation": "independent-context" },
+    "retry": { "enabled": true, "maxRetries": 2, "providerMaxRetries": 0 }
+  }
+}
