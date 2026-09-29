@@ -14,12 +14,12 @@ async function cleanup(root) {
 
 test('real pi refuses an unprepared project without dispatching or changing Git', async t => {
   const root = await mkdtemp(join(tmpdir(), 'flow-preflight-'));
+  let pi;
+  t.after(async () => { try { await pi?.close(); } finally { await cleanup(root); } });
   const cwd = join(root, 'project');
   const agent = join(root, 'agent');
   await mkdir(cwd); await mkdir(agent);
   execFileSync('git', ['init', '-b', 'main', cwd], { stdio: 'ignore' });
-  let pi;
-  t.after(async () => { try { await pi?.close(); } finally { await cleanup(root); } });
   pi = await openPi(cwd, agent);
   assert.match(await pi.flow('start 1'), /CONTRACT_MISSING/);
   assert.match(await pi.flow('status'), /idle/);
