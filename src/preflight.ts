@@ -1,12 +1,13 @@
 import type { ExtensionCommandContext, ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { checkAgentReadiness, instructionSnapshot } from './agents.ts';
 import { PreflightError, readContract } from './contract.ts';
+import { ReportedBehaviorFailure } from './command-outcome.ts';
 import { claimRepository } from './control.ts';
 import { GitHub } from './github.ts';
 import { readPlan } from './plan.ts';
 import { digest, probeProject } from './probe.ts';
 import { baseline } from './workspace.ts';
-import { requireRemoteHead } from './ticket-workspace.ts';
+import { requireRemoteHead } from './remote-git.ts';
 import { type TicketResult } from './execution.ts';
 import { type IntegrationFacts } from './integration.ts';
 import { scheduleTickets } from './scheduler.ts';
@@ -169,6 +170,8 @@ export class FlowController {
         ? `${error.code}: ${error.message}; ${started ? 'work preserved; no further dispatch or integration' : 'no dispatch'}`
         : signal.aborted ? 'FLOW_PAUSED: start cancelled; no late result can authorize dispatch'
         : 'PREFLIGHT_FAILED: unexpected local failure; inspect privately; no dispatch', 'error');
+      if (error instanceof PreflightError && error.detail) ctx.ui.notify(`FAILURE_DETAIL: ${JSON.stringify(error.detail)}`, 'error');
+      if (error instanceof ReportedBehaviorFailure) ctx.ui.notify(`BEHAVIOR_FAILURE: ${JSON.stringify(error.report)}`, 'error');
       await this.releaseOwnership();
     }
   }

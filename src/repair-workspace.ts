@@ -4,7 +4,7 @@ import { captureCommand, git, run } from './process.ts';
 import { canonicalMerge, type MergePreparation } from './merge-preparation.ts';
 import { verifyEdit, type ImplementationEvidence, type MutationEvidence } from './mutation-evidence.ts';
 import { commitParents, treeOf } from './code-proof.ts';
-import { checkTicketWorkspace, commitTicket, requireRemoteHead, type TicketWorkspace } from './ticket-workspace.ts';
+import { checkTicketWorkspace, commitTicket, type TicketWorkspace } from './ticket-workspace.ts';
 
 export interface PreparedRepair { workspace: TicketWorkspace; preparation?: MergePreparation; startTree: string; }
 export async function prepareRepair(workspace: TicketWorkspace, B: string, signal: AbortSignal, C?: string): Promise<PreparedRepair> {
@@ -64,19 +64,4 @@ export async function commitRepair(prepared: PreparedRepair, ticket: number, mut
     throw new PreflightError('WORKSPACE_DRIFT', 'Repair edit must append exactly one parent');
   }
   return { head, proof: { ...proof, head, segments: [...proof.segments, { kind: 'agent-edit', from: workspace.base, head, mutations }] } };
-}
-
-// One append-only conditional write. Unknown outcomes are retained, not replayed.
-export async function pushRepair(cwd: string, branch: string, before: string, after: string, signal: AbortSignal) {
-  signal.throwIfAborted();
-  await requireRemoteHead(cwd, branch, before);
-  await git(cwd, ['merge-base', '--is-ancestor', before, after], signal);
-  signal.throwIfAborted();
-  try { await git(cwd, ['push', '--porcelain', `--force-with-lease=refs/heads/${branch}:${before}`, 'origin', `${after}:refs/heads/${branch}`], signal); }
-  catch (error) {
-    if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
-    throw new PreflightError('REMOTE_RESULT_UNKNOWN', 'Repair push may have taken effect; retain the same PR and both exact heads; no repeat write');
-  }
-  await requireRemoteHead(cwd, branch, after);
-  signal.throwIfAborted();
 }

@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { evidencePath } from './evidence-location.ts';
 import { PreflightError } from './contract.ts';
 import { publishEvidence } from './evidence.ts';
 import { evidenceContext } from './evidence-context.ts';
@@ -18,12 +18,12 @@ export async function publishConflict(input: ExecutionInput, submission: RepairS
   return input.resources.run(submission.number, 'conflict', signal, async cleaned => {
   const label = (kind: string) => ({ ticket: submission.number, phase: 'conflict', kind, codeSha: preparation.H });
   const workspace = await createProbe(cwd, preparation.H, signal);
-  const path = join(workspace.resources, 'conflict.json');
+  const path = evidencePath(workspace.resources, contract, 'conflict.json');
   const env = { FLOW_RESOURCE_DIR: workspace.resources, FLOW_CODE_SHA: preparation.H, FLOW_REPOSITORY: input.repository,
     FLOW_REPORT: path, FLOW_STAGE: 'conflict', FLOW_TICKET: String(submission.number) };
-  const execute = async (name: 'prepare' | 'cleanup' | 'publish', cancellable = true) => {
+  const execute = async (name: 'prepare' | 'cleanup' | 'publish', cancellable = true, extraEnvironment: NodeJS.ProcessEnv = {}) => {
     try {
-      const command = () => run(contract.commands[name], { cwd: workspace.cwd, env, signal: cancellable ? signal : undefined,
+      const command = () => run(contract.commands[name], { cwd: workspace.cwd, env: { ...env, ...extraEnvironment }, signal: cancellable ? signal : undefined,
         timeoutMs: contract.commandTimeoutMs, label: `conflict ${name}`, operation: name });
       const result = name === 'cleanup' ? await input.activities.runCleanup(label(name), command)
         : await input.activities.run(label(name), signal, command);
@@ -40,7 +40,7 @@ export async function publishConflict(input: ExecutionInput, submission: RepairS
   try { await execute('cleanup', false); }
   catch (error) {
     if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
-    throw new PreflightError('CLEANUP_FAILED', 'Conflict evidence cleanup failed; no repair authorized');
+    throw new PreflightError('CLEANUP_FAILED', 'Conflict evidence cleanup failed; no repair authorized', error instanceof PreflightError ? error.detail : undefined);
   }
   cleaned();
   if (failure) throw failure;
@@ -54,7 +54,7 @@ export async function publishConflict(input: ExecutionInput, submission: RepairS
     boundary: 'No executable candidate commit exists for this conflict. A repair must preserve both approved behaviors, then obtain a fresh actual candidate and all independent gates.',
     cleanup: 'passed', retentionDays: contract.artifacts.retentionDays };
   const evidence = await publishEvidence({ cwd, repository: input.repository, codeSha: preparation.H, contract, path, report,
-    beforePublish: () => signal.throwIfAborted(), publish: () => execute('publish', false) });
+    beforePublish: () => signal.throwIfAborted(), publish: environment => execute('publish', false, environment) });
   await workspace.check();
   signal.throwIfAborted(); await input.scope.assert();
   input.ctx.ui.notify(`GATE_FAILED: candidate ${preparation.H} text-conflict ${evidence.url} ${evidence.sha256}`, 'error');

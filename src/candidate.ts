@@ -9,7 +9,7 @@ import { Remote, type PullRequest } from './remote.ts';
 import { repairCandidate, defectEvidence, type CandidateDefect, type RepairSubmission } from './repair.ts';
 import { RepairProgress, remainingBlockers, type PriorBlocker, type AssertionFact } from './repair-progress.ts';
 import { reviewBlockerComment } from './review.ts';
-import { requireRemoteHead } from './ticket-workspace.ts';
+import { requireRemoteHead } from './remote-git.ts';
 import { commitParents } from './code-proof.ts';
 import { git } from './process.ts';
 import type { Evidence } from './evidence.ts';

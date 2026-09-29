@@ -21,6 +21,11 @@ export default function ticketFaultBridge(pi) {
       const projectCommand = ticketWorkspace && Array.isArray(args) && args[0] === 'fixture.mjs' && args[1] === targetPhase;
       const featurePush = command === 'git' && Array.isArray(args) && args[0] === 'push'
         && args.some(arg => /^[a-f0-9]{40}:refs\/heads\/flow\/spec-\d+$/.test(arg));
+      const featureQuery = phase === 'push-unknown' && state.applied > 0 && command === 'git'
+        && Array.isArray(args) && args[0] === 'ls-remote'
+        && args.some(arg => /^refs\/heads\/flow\/spec-\d+$/.test(arg));
+      if (featureQuery) return state.originalSpawn.call(this, process.execPath,
+        [state.commandWrapper, 'push-query-unavailable', command, ...args], options);
       const selected = phase && (phase === 'push-unknown' ? featurePush : projectCommand);
       if (!selected) return state.originalSpawn.call(this, command, args, options);
       state.attempts += 1;

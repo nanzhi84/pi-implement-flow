@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { evidencePath } from './evidence-location.ts';
 import { instructionSnapshot } from './agents.ts';
 import { PreflightError, readContract } from './contract.ts';
 import { ReportedBehaviorFailure, runReportedCommand, type ReportedBehavior } from './command-outcome.ts';
@@ -30,7 +30,7 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
   return input.resources.run(ticket.issue.number, phase, signal, async cleaned => {
   const label = (kind: string) => ({ ticket: ticket.issue.number, phase, kind, codeSha });
   const workspace = await createProbe(cwd, codeSha, signal);
-  const reportPath = join(workspace.resources, 'gate.json');
+  const reportPath = evidencePath(workspace.resources, contract, 'gate.json');
   const env = { FLOW_RESOURCE_DIR: workspace.resources, FLOW_CODE_SHA: codeSha, FLOW_REPOSITORY: input.repository,
     FLOW_REPORT: reportPath, FLOW_STAGE: phase, FLOW_TICKET: String(ticket.issue.number) };
   if (digest(await readContract(workspace.cwd)) !== digest(contract)
@@ -39,8 +39,8 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
   }
   const commandResults: Record<string, 'passed' | 'failed' | 'not-run'> = { prepare: 'not-run', check: 'not-run', accept: 'not-run', cleanup: 'not-run' };
   const assertions: AssertionFact[] = [];
-  const execute = async (name: keyof typeof contract.commands, cancellable = true) => {
-    const options = { cwd: workspace.cwd, env, signal: cancellable ? signal : undefined,
+  const execute = async (name: keyof typeof contract.commands, cancellable = true, extraEnvironment: NodeJS.ProcessEnv = {}) => {
+    const options = { cwd: workspace.cwd, env: { ...env, ...extraEnvironment }, operation: name, signal: cancellable ? signal : undefined,
       timeoutMs: contract.commandTimeoutMs, label: `${phase} ${name}` };
     try {
       const command = () => name === 'check' || name === 'accept'
@@ -103,7 +103,7 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
   try { await execute('cleanup', false); }
   catch (error) {
     if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
-    throw new PreflightError('CLEANUP_FAILED', 'Gate cleanup failed; preserve candidate and resources; no integration authority');
+    throw new PreflightError('CLEANUP_FAILED', 'Gate cleanup failed; preserve candidate and resources; no integration authority', error instanceof PreflightError ? error.detail : undefined);
   }
   cleaned();
   if (failure) throw failure;
@@ -122,7 +122,7 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
     implementationEvidence, assertions, acceptance, behavior, review, previousBlockers: repair.previousBlockers,
     cleanup: 'passed', retentionDays: contract.artifacts.retentionDays, sourceDiffDigest: digest(diff) };
   const evidence = await publishEvidence({ cwd, repository: input.repository, codeSha, contract, path: reportPath, report,
-    beforePublish: () => signal.throwIfAborted(), publish: () => execute('publish', false) });
+    beforePublish: () => signal.throwIfAborted(), publish: environment => execute('publish', false, environment) });
   await workspace.check();
   signal.throwIfAborted();
   await input.scope.assert();

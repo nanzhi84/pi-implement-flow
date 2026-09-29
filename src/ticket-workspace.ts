@@ -4,27 +4,6 @@ import { join } from 'node:path';
 import { PreflightError } from './contract.ts';
 import { git } from './process.ts';
 
-export async function remoteHead(cwd: string, branch: string): Promise<string | undefined> {
-  const output = await git(cwd, ['ls-remote', '--heads', 'origin', `refs/heads/${branch}`]);
-  return output.trim().split(/\s+/)[0] || undefined;
-}
-export async function requireRemoteHead(cwd: string, branch: string, expected: string): Promise<void> {
-  if (await remoteHead(cwd, branch) !== expected) throw new PreflightError('REMOTE_DRIFT', `Remote ${branch} changed; preserve work and reconcile, never overwrite`);
-}
-export async function pushNew(cwd: string, sha: string, branch: string, signal: AbortSignal) {
-  signal.throwIfAborted();
-  if (await remoteHead(cwd, branch)) throw new PreflightError('BRANCH_EXISTS', `Remote ${branch} exists; reconciliation required`);
-  signal.throwIfAborted();
-  // Empty expected value is an atomic create-only condition, never an overwrite.
-  try { await git(cwd, ['push', '--porcelain', `--force-with-lease=refs/heads/${branch}:`, 'origin', `${sha}:refs/heads/${branch}`]); }
-  catch (error) {
-    if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
-    throw new PreflightError('REMOTE_RESULT_UNKNOWN', `Push to ${branch} has unknown outcome; preserve local commit and inspect remote before retrying`);
-  }
-  await requireRemoteHead(cwd, branch, sha);
-  signal.throwIfAborted();
-}
-
 export interface TicketWorkspace { cwd: string; resources: string; branch: string; base: string; }
 export async function createTicketWorkspace(cwd: string, spec: number, ticket: number, base: string, signal: AbortSignal): Promise<TicketWorkspace> {
   const common = (await git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir'], signal)).trim();

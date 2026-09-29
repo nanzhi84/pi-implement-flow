@@ -8,8 +8,8 @@ import type { MergePreparation } from './merge-preparation.ts';
 import type { TicketPlan } from './plan.ts';
 import { digest } from './probe.ts';
 import { Remote, type PullRequest } from './remote.ts';
-import { commitRepair, pushRepair } from './repair-workspace.ts';
-import { requireRemoteHead } from './ticket-workspace.ts';
+import { commitRepair } from './repair-workspace.ts';
+import { pushExpected, requireRemoteHead } from './remote-git.ts';
 import { git } from './process.ts';
 import { isGateDefect, type GateBehaviorFailure, type ReviewBlocked } from './gate-defect.ts';
 
@@ -76,7 +76,7 @@ export async function repairCandidate(input: ExecutionInput, submitted: RepairSu
   if ((await git(workspace.cwd, ['status', '--porcelain'], signal)).trim()) throw new PreflightError('WORKSPACE_DRIFT', 'Repair commit did not leave the owned worktree clean');
   await input.scope.assert();
   await requireRemoteHead(input.cwd, input.feature, B);
-  await pushRepair(workspace.cwd, workspace.branch, H, committed.head, signal);
+  await pushExpected(workspace.cwd, committed.head, workspace.branch, H, signal);
   const current = await remote.pull(before.number);
   if (current.merged || current.state !== 'open' || current.head.sha !== committed.head || current.head.ref !== before.head.ref || current.base.ref !== before.base.ref) {
     throw new PreflightError('REMOTE_RESULT_UNKNOWN', 'Repair push and original PR do not confirm the same appended head; no replacement PR');

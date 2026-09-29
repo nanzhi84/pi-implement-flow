@@ -39,7 +39,7 @@ export async function runRepairImplementation(input: ExecutionInput, ticket: num
   try { await execute('cleanup', false); }
   catch (error) {
     if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
-    throw new PreflightError('CLEANUP_FAILED', 'Repair cleanup could not complete from immutable H; preserve resources and all worktrees');
+    throw new PreflightError('CLEANUP_FAILED', 'Repair cleanup could not complete from immutable H; preserve resources and all worktrees', error instanceof PreflightError ? error.detail : undefined);
   }
   await checkTicketWorkspace(workspace);
   if (beforeCleanup !== await workingTreeDigest(workspace.cwd)) throw new PreflightError('WORKSPACE_DRIFT', 'Repair cleanup changed owned source');

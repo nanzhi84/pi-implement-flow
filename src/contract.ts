@@ -8,12 +8,13 @@ export class PreflightError extends Error {
 
 type CommandName = 'prepare' | 'cleanup' | 'check' | 'accept' | 'publish';
 type Role = { tools: string[]; extensions: string[]; instructions: string[] };
+export interface ArtifactLocator { kind: 'github-release'; tagPrefix: string; assetName: string; }
 export interface Contract {
   version: 1;
   commands: Record<CommandName, string[]>;
   commandTimeoutMs: number;
   resources: { mode: 'exclusive' | 'isolated'; description: string };
-  artifacts: { destination: string; retentionDays: number };
+  artifacts: { destination: string; retentionDays: number; locator?: ArtifactLocator };
   agents: {
     implementation: Role;
     review: Role & { isolation: 'independent-context' };
@@ -81,7 +82,15 @@ export async function readContract(cwd: string): Promise<Contract> {
   if (commandTimeoutMs > 2_147_483_647) invalid('commandTimeoutMs (exceeds platform timer range)');
   const resources = object(root.resources, ['mode', 'description'], 'resources');
   if (resources.mode !== 'isolated' && resources.mode !== 'exclusive') invalid('resources.mode');
-  const artifacts = object(root.artifacts, ['destination', 'retentionDays'], 'artifacts');
+  const hasLocator = !!root.artifacts && typeof root.artifacts === 'object' && Object.hasOwn(root.artifacts, 'locator');
+  const artifacts = object(root.artifacts, ['destination', 'retentionDays', ...(hasLocator ? ['locator'] : [])], 'artifacts');
+  let locator: ArtifactLocator | undefined;
+  if (hasLocator) {
+    const value = object(artifacts.locator, ['kind', 'tagPrefix', 'assetName'], 'artifacts.locator');
+    if (value.kind !== 'github-release' || typeof value.tagPrefix !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,47}$/.test(value.tagPrefix)
+      || typeof value.assetName !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value.assetName)) invalid('artifacts.locator');
+    locator = { kind: 'github-release', tagPrefix: value.tagPrefix, assetName: value.assetName };
+  }
   const agents = object(root.agents, ['implementation', 'review', 'retry'], 'agents');
   const implementation = role(agents.implementation, false);
   const review = role(agents.review, true);
@@ -100,7 +109,7 @@ export async function readContract(cwd: string): Promise<Contract> {
     version: 1, commands: validated,
     commandTimeoutMs,
     resources: { mode: resources.mode, description: text(resources.description, 'resources.description') },
-    artifacts: { destination: text(artifacts.destination, 'artifacts.destination'), retentionDays: integer(artifacts.retentionDays, 1, 'artifacts.retentionDays') },
+    artifacts: { destination: text(artifacts.destination, 'artifacts.destination'), retentionDays: integer(artifacts.retentionDays, 1, 'artifacts.retentionDays'), ...(locator ? { locator } : {}) },
     agents: { implementation, review: { ...review, isolation: 'independent-context' }, retry: {
       enabled: retry.enabled, maxRetries: integer(retry.maxRetries, 0, 'agents.retry.maxRetries'), providerMaxRetries: 0,
     } },

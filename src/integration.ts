@@ -5,7 +5,7 @@ import { GitHub } from './github.ts';
 import { Remote, type PullRequest } from './remote.ts';
 import { reviewBlockerComment } from './review.ts';
 import { git } from './process.ts';
-import { requireRemoteHead, remoteHead } from './ticket-workspace.ts';
+import { requireRemoteHead, remoteHead } from './remote-git.ts';
 import { reviewedCandidate } from './candidate.ts';
 import { isGateDefect } from './gate-defect.ts';
 
@@ -76,7 +76,7 @@ export async function integrateTicket(input: ExecutionInput, submitted: Submissi
   if (latest.draft || latest.merged || latest.state !== 'open' || latest.base.sha !== B) throw new PreflightError('EVIDENCE_STALE', 'Ready PR changed before merge');
   await requireRemoteHead(cwd, input.feature, B);
   signal.throwIfAborted();
-  const M = await remote.merge(before.number, H);
+  const M = await remote.merge(before.number, H, B);
   let facts: IntegrationFacts = { ticket: ticket.issue.number, M, phase: 'merged-unaccepted' };
   onFacts(facts);
   try {

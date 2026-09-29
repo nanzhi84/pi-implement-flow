@@ -165,3 +165,15 @@ agree when present. Whole tokens are consumed; qualified shorthand, invalid
 numbers, ambiguous prose, mixed None/references and Markdown links are refused.
 Trailing parenthetical display notes cannot conceal references/URLs. Out-of-Spec
 edges and cycles name the relevant Issues. Closed is never equivalent to merged.
+
+## 可核对的工件位置
+
+项目可以在 `artifacts` 中显式加入可选 `locator`：
+
+```json
+{"kind":"github-release","tagPrefix":"flow-evidence","assetName":"evidence.json"}
+```
+
+`tagPrefix` 只接受 1–48 个 ASCII 字母、数字、下划线或连字符，首位须为字母或数字；`assetName` 同样以字母或数字开头，后续允许点、下划线和连字符，总长 1–128。publish 收到 `FLOW_REPORT` 及 `FLOW_ARTIFACT_SHA256`、`FLOW_ARTIFACT_TAG`、`FLOW_ARTIFACT_NAME`、`FLOW_ARTIFACT_URL`、`FLOW_ARTIFACT_RETENTION_DAYS`。它必须把该报告的原始字节发布到同仓库精确 tag/asset，实际 Git tag 指向 `FLOW_CODE_SHA`，并承诺保留不少于合同期限。成功 JSON 仍须给出相同 URL、hash 和保留天数。
+
+这个预先批准的位置让响应丢失后可以只读核对；部分上传、错误字节、错误 Git tag 或不可读事实均不授予交付资格。GitHub Release 不提供原生 TTL，项目 publisher 负责履行保留承诺。未声明 locator 的现有合同仍可使用，但发布结果未知时停止，不自动重放。
