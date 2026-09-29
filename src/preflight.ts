@@ -6,6 +6,7 @@ import { GitHub } from './github.ts';
 import { readPlan } from './plan.ts';
 import { digest, probeProject } from './probe.ts';
 import { baseline } from './workspace.ts';
+import { requireRemoteHead } from './ticket-workspace.ts';
 import { type TicketResult } from './execution.ts';
 import { type IntegrationFacts } from './integration.ts';
 import { scheduleTickets } from './scheduler.ts';
@@ -136,6 +137,7 @@ export class FlowController {
           this.abort?.abort();
         };
         const scope = new ScopeGuard({ plan, contract, instructions }, async () => {
+          await requireRemoteHead(ctx.cwd, 'main', sha);
           const currentContract = await readContract(ctx.cwd);
           return { plan: await readPlan(github, number), contract: currentContract,
             instructions: await instructionSnapshot(ctx.cwd, currentContract) };

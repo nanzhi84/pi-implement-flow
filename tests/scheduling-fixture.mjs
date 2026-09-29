@@ -21,6 +21,8 @@ export async function graphFixture(t, scenario) {
   const socket = `/tmp/pi-flow-${process.getuid()}-${hash(`github.com:${identity}`).slice(0, 24)}.sock`;
   await assert.rejects(access(socket), { code: 'ENOENT' });
   const harness = await schedulingHarness(scenario);
+  let pi;
+  t.after(async () => { await pi?.close(); await harness.close(); });
   const fixed = scenario === names[0] ? undefined : await schedulingProvider(t, scenario, harness);
   const requirement = requests(scenario);
   const f = await fixture(t, scenario, { stage: 'T4', fixed, preserveOnPass: true,
@@ -40,14 +42,13 @@ export async function graphFixture(t, scenario) {
   const contract = JSON.parse(await readFile(join(f.project, '.pi/flow.json'), 'utf8'));
   assert.equal(contract.resources.mode, scenario === names[2] ? 'exclusive' : 'isolated');
   let confirmation;
-  const pi = await f.open({ timeoutMs: 2_600_000, onConfirm: event => { confirmation = event.message; return true; },
+  pi = await f.open({ timeoutMs: 2_600_000, onConfirm: event => { confirmation = event.message; return true; },
     extensions: [fileURLToPath(new URL('./fixtures/scheduling-bridge.mjs', import.meta.url))] });
   const configured = await pi.request('prompt', { message: `/fixture-scheduling ${JSON.stringify({ repository, scenario, url: harness.url, tickets: Object.values(tickets).map(item => item.number) })}` });
   assert.equal(configured.success, true);
   // pi teardown is registered by fixture before this hook. Preserve remote/Git
   // facts; remove only this scenario's now-unowned socket, never another owner.
   t.after(async () => {
-    await harness.close();
     let before; try { before = await lstat(socket); } catch (error) { if (error.code === 'ENOENT') return; throw error; }
     assert.equal(before.isSocket(), true);
     let noOwner = false; try { execFileSync('lsof', ['-t', socket], { stdio: 'pipe' }); } catch (error) { noOwner = error.status === 1; }
@@ -166,7 +167,8 @@ export async function verifyDelivery(f, key) {
   const actualNotice = f.observation.gates.find(item => item.sha === M) ?? f.observation.gates.find(item => item.sha === C);
   assert.ok(closes[0].sequence > actualNotice.sequence && closes[0].sequence < delivered.sequence);
   const issue = api(`repos/${repository}/issues/${ticket}`); assert.equal(issue.state, 'closed'); assert.equal(issue.state_reason, 'completed');
-  const comments = api(`repos/${repository}/issues/${ticket}/comments`); assert.ok(comments.some(item => item.body.includes(M) && item.body.includes(candidate.url) && item.body.includes(actual.url)));
+  const comments = api(`repos/${repository}/issues/${ticket}/comments`); assert.ok(comments.some(item => item.body.includes(M) && item.body.includes(candidate.url) && item.body.includes(actual.url)
+    && item.body.includes(candidate.sha256) && item.body.includes(actual.sha256)));
   return { ticket, pr: pr.html_url, H, B, C, M, scopeDigest: candidate.report.scopeDigest, evidence: [{ url: candidate.url, sha256: candidate.sha256 }, { url: actual.url, sha256: actual.sha256 }] };
 }
 export async function verifyNoDelivery(f, key) {
