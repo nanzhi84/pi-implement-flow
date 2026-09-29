@@ -94,7 +94,8 @@ export async function integrationProvider(t, scenario) {
               basis: 'The fixture.mjs diff removes the existing missing-name-rejected assertion and executable check.',
               impact: 'The original missing-name behavior is no longer covered by the required acceptance contract.',
               verification: 'Restore the original missing-name CLI check and named assertion while retaining whitespace-only-rejected.' }] : [],
-            suggestions: scenario === 'actual-merge-recheck-fails' ? ['Optional style preference: use a descriptive local name; this does not block correctness.'] : [] };
+            suggestions: scenario === 'actual-merge-recheck-fails' ? ['Optional style preference: use a descriptive local name; this does not block correctness.']
+              : scenario === 'evidence-unavailable' ? ['Synthetic byte-integrity sentinel FLOW_UTF8_SENTINEL:\uFFFD:END; no code change is requested.'] : [] };
           reviews.push(answer);
         }
       }

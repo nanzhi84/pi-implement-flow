@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { api, assertNoDelivery, commit, featureSha, git, integrationFixture, readGate,
   repository, ticketPull, totals, verifyRemoteBehavior, verifyVersionChain } from './integration-fixture.mjs';
 import { persist, runGreeting } from './execution-fixture.mjs';
@@ -128,11 +130,32 @@ test('unverifiable candidate artifact cannot be replaced by startup or historica
   const f = await integrationFixture(t, 'evidence-unavailable');
   const output = await f.run(); const observed = await f.observer();
   assert.equal(observed.applied, 1, 'real download corrupted once; no automatic re-publication loop');
+  const fault = observed.byteFault;
+  assert.equal(fault.repository, repository);
+  assert.match(fault.tag, /^flow-evidence-[a-f0-9]{64}$/);
+  assert.match(fault.filename, /^[A-Za-z0-9._-]+$/);
+  const original = execFileSync('gh', ['release', 'download', fault.tag, '--repo', repository, '--pattern', fault.filename, '--output', '-'],
+    { stdio: ['ignore', 'pipe', 'pipe'], timeout: 120_000 });
+  const sentinel = Buffer.from('FLOW_UTF8_SENTINEL:\uFFFD:END');
+  const start = original.indexOf(sentinel);
+  assert.ok(start >= 0); assert.equal(original.indexOf(sentinel, start + 1), -1);
+  const position = start + Buffer.byteLength('FLOW_UTF8_SENTINEL:');
+  const corrupted = Buffer.concat([original.subarray(0, position), Buffer.from([0xff]), original.subarray(position + 3)]);
+  const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+  assert.equal(hash(original), fault.originalSha256); assert.equal(hash(corrupted), fault.corruptedSha256);
+  assert.notEqual(fault.originalSha256, fault.corruptedSha256);
+  assert.equal(original.length, fault.originalBytes); assert.equal(corrupted.length, fault.corruptedBytes);
+  assert.equal(fault.decodedEqual, true); assert.equal(fault.invalidUtf8, true);
+  assert.doesNotThrow(() => new TextDecoder('utf-8', { fatal: true }).decode(original));
+  assert.throws(() => new TextDecoder('utf-8', { fatal: true }).decode(corrupted), TypeError);
+  assert.equal(corrupted.toString('utf8'), original.toString('utf8'), 'old text decoding would make the different raw bytes appear identical');
+  assert.match(output, /EVIDENCE_INVALID:/, 'the raw-byte mismatch must reach controller evidence validation');
   assert.ok(f.fixed.reviews.some(review => review.blockers.length === 0));
   assert.equal(observed.gates.length, 0, 'C has no verified gate artifact');
   assert.equal(observed.mergeRequests.length, 0);
   assertNoDelivery(f, output);
-  f.pass({ injection: 'real C evidence downloaded; one extra marker corrupts returned bytes only', assertions: ['actual commands and reviewer pass before evidence check', 'one deterministic byte mismatch', 'no verified C evidence', 'startup evidence grants no merge', 'no merge; Ticket open'] });
+  f.pass({ injection: 'real C evidence downloaded; unique UTF-8 EF BF BD sentinel replaced by invalid single FF byte; diagnostic marker is stderr only', byteFault: fault,
+    assertions: ['actual commands and reviewer pass before evidence check', 'original remote asset independently downloaded unchanged', 'different raw hashes despite identical decoded text', 'invalid UTF-8 delivered to controller', 'one deterministic byte mismatch yields EVIDENCE_INVALID', 'no verified C evidence', 'startup evidence grants no merge', 'no merge; Ticket open'] });
 });
 
 for (const scenario of ['stale-head', 'stale-base']) {

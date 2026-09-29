@@ -106,6 +106,16 @@ export default function integrationBridge(pi) {
         captured = `${captured}${chunk}`.slice(-4096);
         if (!counted && captured.includes(`INTEGRATION_FAULT_APPLIED: ${state.mode}`)) { counted = true; state.applied += 1; }
       });
+      if (corruptDownload) {
+        let diagnostic = '';
+        child.stderr?.on('data', chunk => {
+          diagnostic = `${diagnostic}${chunk}`.slice(-4096);
+          const bytes = /INTEGRATION_FAULT_BYTES: (\{[^\n]*\})/.exec(diagnostic);
+          if (bytes) state.byteFault = { ...JSON.parse(bytes[1]), tag: args[2],
+            repository: args[args.indexOf('--repo') + 1], filename: args[args.indexOf('--pattern') + 1] };
+          if (!counted && diagnostic.includes('INTEGRATION_FAULT_APPLIED: evidence-unavailable')) { counted = true; state.applied += 1; }
+        });
+      }
       return child;
     };
     syncBuiltinESMExports();
@@ -119,8 +129,8 @@ export default function integrationBridge(pi) {
     install(ctx);
   } });
   pi.registerCommand('fixture-integration-status', { handler: async (_args, ctx) => {
-    const { mode, applied, gates, ticketAtCreation, featureAtCandidate, totalBeforeIntegration, mergeRequests, closeRequests, commands, writes } = state;
-    ctx.ui.notify(`INTEGRATION_OBSERVER: ${JSON.stringify({ mode, applied, gates, ticketAtCreation, featureAtCandidate, totalBeforeIntegration, mergeRequests, closeRequests, commands, writes })}`, 'info');
+    const { mode, applied, gates, ticketAtCreation, featureAtCandidate, totalBeforeIntegration, mergeRequests, closeRequests, commands, writes, byteFault } = state;
+    ctx.ui.notify(`INTEGRATION_OBSERVER: ${JSON.stringify({ mode, applied, gates, ticketAtCreation, featureAtCandidate, totalBeforeIntegration, mergeRequests, closeRequests, commands, writes, byteFault })}`, 'info');
   } });
   pi.on('session_shutdown', async () => {
     childProcess.spawn = state.spawn;
