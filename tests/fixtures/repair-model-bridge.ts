@@ -1,4 +1,5 @@
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
+import { getCurrentTools } from '@earendil-works/pi-ai';
 import { repository } from '../acceptance-repository.mjs';
 
 // The sole deterministic substitution in real-repair is its initial model
@@ -31,11 +32,13 @@ export default function repairModelBridge(pi) {
       return notify.call(ui, message, ...args);
     };
     ModelRuntime.prototype.streamSimple = function (model, context, options) {
-      const implementation = context.tools?.some(tool => tool.name === 'write');
+      const toolNames = getCurrentTools(context.messages).map(tool => tool.name);
+      if (!toolNames.includes('read')) throw new Error('Only an explicitly tooled role may reach the fixture model boundary');
+      const implementation = toolNames.includes('write');
       const messages = context.messages.filter(message => message.role === 'user');
       const repair = messages.some(message => JSON.stringify(message.content).includes('repair-candidate'));
       const fixed = implementation && !repair;
-      calls.push({ role: implementation ? 'implementation' : 'review', repair, provider: fixed ? 'flow-repair-fixture' : model.provider, id: fixed ? 'fixed' : model.id });
+      calls.push({ role: implementation ? 'implementation' : 'review', repair, toolNames, provider: fixed ? 'flow-repair-fixture' : model.provider, id: fixed ? 'fixed' : model.id });
       if (fixed) {
         if (!this.getModel('flow-repair-fixture', 'fixed')) this.registerProvider('flow-repair-fixture', configuration.provider);
         // A provider switch must not forward the selected provider's request

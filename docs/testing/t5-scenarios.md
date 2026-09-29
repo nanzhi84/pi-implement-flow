@@ -36,6 +36,8 @@
 
 实际首次真实模型场景暴露过测试注入未生效：原生 `.mjs` 从开发依赖加载的 SDK 与产品 `.ts` 经 host loader alias 使用的 SDK 不是同一 runtime，导致普通实现直接成功、没有到达修复。该历史 run 即使 Ticket 已真实交付也不能计修复通过。模型边界 extension 使用 `.ts` 同一 host alias，并在初始 Agent 调用前要求已观察到真实 preflight runtime 创建；未接上立即失败，不默默跑成普通 happy path。外部断言还必须确认初始 fixed HTTP 请求实际发生、缺陷工件存在、后续 repair/review 明确为所选 OpenAI。
 
+改为 host alias 后的无网络写入诊断进一步确认：宿主真实 role 的 stream context 仅含 messages，工具状态位于 transcript，不在旧 context.tools 字段中。必须通过同一宿主 SDK 的 getCurrentTools 读取当前声明；否则实施会被错误归为 review，即使 runtime-create 已观察到也不能证明替身真正接入。诊断实际运行 pi、SDK、固定 HTTP 和一次受控写，未调用 GitHub/OpenAI，不作为产品验收。正式场景保存安全 toolNames 并仍要求真实 HTTP 初始缺陷、已发布 failure 与后续 OpenAI repair，不能用诊断结果替代端到端结果。
+
 共享执行 helper 对唯一仓库的 allowlist 扩展来自 #10，不复制进程/parser。没有单元测试、凭据复制、原始会话公开或源码边改边验。最终冻结提交后运行；保留失败现场及原始报告。
 
 7. `review-progress`：先由确定性独立审查指出两个真实可见 stderr 契约缺陷；两次真实代码修复分别补齐诊断和调用提示。每次 review 逐项绑定旧引用与当前原始 blob。外部验收从最终 M 再执行 CLI，检查完整诊断输出、历史 failure 报告和同一 PR；改措辞或遗漏旧阻断不能算解决。
