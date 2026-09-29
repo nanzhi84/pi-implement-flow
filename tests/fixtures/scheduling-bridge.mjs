@@ -42,6 +42,7 @@ export default function bridge(pi) {
       if (command === 'gh' && args[0] === 'api') {
         const path = args.find(value => typeof value === 'string' && value.startsWith(`repos/${repository}/`));
         if (['POST', 'PATCH', 'PUT', 'DELETE'].some(method => args.includes(method))) event({ type: 'github-write', path });
+        if (path === `repos/${repository}/pulls` && args.includes('POST')) event({ type: 'pull-create' });
         if (path?.endsWith('/merge') && args.includes('PUT')) event({ type: 'merge', pr: Number(path.split('/').at(-2)) });
         if (/\/issues\/\d+$/.test(path ?? '') && args.includes('PATCH')) event({ type: 'close', ticket: Number(path.split('/').at(-1)) });
       }

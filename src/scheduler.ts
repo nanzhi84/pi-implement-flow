@@ -5,6 +5,7 @@ import { git } from './process.ts';
 import { SerialControl } from './slots.ts';
 import { pushExpected, requireRemoteHead } from './remote-git.ts';
 import { TicketPaused } from './candidate.ts';
+import type { PullRequest } from './remote.ts';
 
 export async function scheduleTickets(input: ExecutionInput, update: (ticket: TicketResult) => void,
   onFacts: (facts: IntegrationFacts) => void): Promise<'delivered' | 'blocked'> {
@@ -43,20 +44,24 @@ export async function scheduleTickets(input: ExecutionInput, update: (ticket: Ti
         signal.throwIfAborted();
         if (!('ownedWorkspace' in result)) { update(result); return; }
         const submission: Submission = result;
-        update({ number, state: 'submitted', pr: result.pr });
+        update({ number, state: 'submitted' });
         await integration.run(signal, async () => {
+          let pr: PullRequest | undefined;
           try {
-            update({ number, state: 'integrating', pr: result.pr });
+            update({ number, state: 'integrating' });
             const delivery = await integrateTicket(input, submission, acceptedFeatureHead, facts => {
               onFacts(facts);
-              update({ number, state: facts.phase === 'delivered' ? 'delivered' : 'integrated-unaccepted', pr: result.pr });
+              update({ number, state: facts.phase === 'delivered' ? 'delivered' : 'integrated-unaccepted', pr });
+            }, created => {
+              pr = created;
+              update({ number, state: 'integrating', pr });
             });
             signal.throwIfAborted();
             acceptedFeatureHead = delivery.M;
             deliveries.set(number, delivery);
             update({ number, state: 'delivered', pr: delivery.pr });
           } catch (error) {
-            if (error instanceof TicketPaused) { update({ number, state: 'blocked', pr: submission.pr }); return; }
+            if (error instanceof TicketPaused) { update({ number, state: 'blocked', pr }); return; }
             input.stop(error); throw error;
           }
         });

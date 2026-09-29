@@ -30,19 +30,38 @@ function evidenceText(evidence: GateEvidence) {
 }
 
 export async function integrateTicket(input: ExecutionInput, submitted: Submission, expectedFeatureHead: string,
-  onFacts: (facts: IntegrationFacts) => void): Promise<Delivery> {
-  if (!submitted.pr) throw new PreflightError('PR_REQUIRED', 'A Ticket PR is required before integration');
+  onFacts: (facts: IntegrationFacts) => void, onPull: (pr: PullRequest) => void): Promise<Delivery> {
   const ticket = input.plan.tickets.find(item => item.issue.number === submitted.number);
   if (!ticket) throw new PreflightError('PLAN_INVALID', 'Submitted Ticket is outside the approved plan');
   const { cwd, signal, ctx } = input;
   const remote = new Remote(cwd, input.repository, signal);
   const github = await GitHub.fromOrigin(cwd);
   const B = await remoteHead(cwd, input.feature);
-  if (!B || B !== expectedFeatureHead) throw new PreflightError('REMOTE_DRIFT', 'Feature changed outside this controller; preserve work and reconcile');
-  if (!submitted.ownedWorkspace || !submitted.implementationEvidence) throw new PreflightError('WORKSPACE_REQUIRED', 'Submitted code must retain its exclusively owned workspace and complete proof');
+  if (!B || B !== expectedFeatureHead) throw new PreflightError('REMOTE_DRIFT', 'Feature changed outside the accepted integration chain; preserve work and reconcile');
+  if (submitted.ownedWorkspace.expectedHead !== submitted.head || submitted.implementationEvidence.head !== submitted.head
+    || submitted.implementationEvidence.origin !== submitted.startedFrom) {
+    throw new PreflightError('WORKSPACE_REQUIRED', 'Submitted head, implementation origin and exclusively owned workspace must share complete proof');
+  }
+  await input.scope.assert();
+  await github.inspectProtection(input.feature);
+  await remote.requireMergeStrategy();
+  // GitHub preserves a PR's creation-time base. Create only after serial base
+  // selection, never while another Ticket can still advance the feature.
+  await requireRemoteHead(cwd, input.feature, B);
+  const body = `Ticket #${ticket.issue.number} for Spec #${input.plan.spec.number}.\n\n`
+    + `Original requirement: https://github.com/${input.repository}/issues/${ticket.issue.number}\n\n`
+    + `Implementation baseline: \`${submitted.startedFrom}\`\nIntegration baseline: \`${B}\`\nHead: \`${submitted.head}\`\nApproved scope: \`${input.scopeDigest}\`\n`
+    + `Implementation context digest: \`${submitted.implementationContextDigest}\`\n\n`
+    + 'Implementation submitted. Independent review, executable behavior acceptance and integration gates are still required. The Issue remains open.\n';
+  const created = await remote.createPull(submitted.ownedWorkspace.branch, input.feature,
+    `Ticket #${ticket.issue.number}: ${ticket.issue.title}`.slice(0, 240), body);
+  onPull(created);
+  ctx.ui.notify(`TICKET_PR: ${created.html_url}`, 'info');
+  signal.throwIfAborted();
+  expectedPull(created, input, ticket.issue.number, submitted.head);
   const validated = await reviewedCandidate(input, {
-    number: submitted.number, ticket, startedFrom: submitted.implementationEvidence.origin,
-    pr: submitted.pr, ownedWorkspace: submitted.ownedWorkspace, implementationEvidence: submitted.implementationEvidence,
+    number: submitted.number, ticket, startedFrom: submitted.startedFrom,
+    pr: created, ownedWorkspace: submitted.ownedWorkspace, implementationEvidence: submitted.implementationEvidence,
   }, B);
   const { before, versions, candidate, submission } = validated;
   const { H, C } = versions;

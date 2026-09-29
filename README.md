@@ -21,6 +21,9 @@ All current Tickets delivered means
 `paused (final-acceptance-not-installed)`: the Spec stays open, total PR Draft and
 main unchanged. Repair after an already merged M fails, restart recovery and
 final Spec delivery remain later slices.
+Implementations commit/push before queueing; their first Ticket PR is created only
+after serial integration selects the latest base, because an existing GitHub PR
+can retain its creation-time base and candidate.
 `/flow preflight` runs only the original preflight/probe path.
 
 ## Develop and use

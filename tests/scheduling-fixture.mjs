@@ -73,6 +73,11 @@ export async function graphFixture(t, scenario) {
       const gates = raw.events.filter(item => item.type === 'notice' && item.message.startsWith('GATE_PASSED: ')).map(item => {
         const match = /^GATE_PASSED: (candidate|actual) ([a-f0-9]{40}) (https:\/\/\S+)$/.exec(item.message); assert.ok(match); return { phase: match[1], sha: match[2], url: match[3], sequence: item.sequence };
       });
+      const ticketPulls = raw.events.filter(item => item.type === 'notice' && item.message.startsWith('TICKET_PR: ')).map(item => {
+        const match = /\/pull\/(\d+)$/.exec(item.message); assert.ok(match);
+        const request = raw.events.filter(event => event.type === 'pull-create' && event.sequence < item.sequence).at(-1); assert.ok(request);
+        return { pr: Number(match[1]), createdSequence: request.sequence, sequence: item.sequence };
+      });
       const commands = raw.events.filter(item => item.type === 'command' && item.event === 'end');
       const candidates = commands.filter(item => item.phase === 'candidate' && item.command === 'prepare').map(item => {
         const commit = remoteCommit(item.sha); return { ticket: item.ticket, C: item.sha, B: commit.parents[0].sha, H: commit.parents[1].sha };
@@ -80,7 +85,7 @@ export async function graphFixture(t, scenario) {
       const prs = f.pulls();
       const merges = raw.events.filter(item => item.type === 'merge').map(item => ({ ...item, ticket: Number(prs.find(pr => pr.number === item.pr)?.head.ref.split('-').at(-1)) }));
       const firstReview = activities.find(item => item.kind === 'review' && item.event === 'start')?.sequence ?? Infinity;
-      observation = { ...raw, activities, starts, deliveries, gates, commands, candidates, merges,
+      observation = { ...raw, activities, starts, deliveries, gates, commands, candidates, merges, states, ticketPulls,
         submittedBeforeFirstReview: states.filter(item => item.state === 'submitted' && item.sequence < firstReview).length };
       return observation;
     },
@@ -170,6 +175,14 @@ export async function verifyDelivery(f, key) {
   const gates = await Promise.all(f.observation.gates.map(item => readGate(f, item))); const candidate = gates.find(item => item.report.ticket === ticket && item.report.phase === 'candidate');
   assert.ok(candidate); const { H, B, C } = candidate.report.versions; const M = pr.merge_commit_sha;
   assert.equal(H, pr.head.sha); assert.deepEqual(remoteCommit(C).parents.map(item => item.sha), [B, H]);
+  assert.equal(pr.base.sha, B, 'first PR creation binds the latest accepted base, not an earlier queued baseline');
+  const created = f.observation.ticketPulls.filter(item => item.pr === pr.number); assert.equal(created.length, 1);
+  const submitted = f.observation.states.find(item => item.ticket === ticket && item.state === 'submitted'); assert.ok(submitted);
+  assert.ok(created[0].createdSequence > submitted.sequence, 'first PR creation happens after implementation submission');
+  if (B !== f.baseline) {
+    const previous = f.observation.deliveries.find(item => item.M === B); assert.ok(previous);
+    assert.ok(created[0].createdSequence > previous.sequence, 'queued PR is first created after previous actual delivery');
+  }
   assert.deepEqual(remoteCommit(M).parents.map(item => item.sha), [B, H]); assert.equal(remoteCommit(M).tree.sha, remoteCommit(C).tree.sha);
   const actual = M === C ? candidate : gates.find(item => item.report.ticket === ticket && item.report.codeSha === M && item.report.phase === 'actual'); assert.ok(actual);
   assert.deepEqual(actual.report.approvedContext, candidate.report.approvedContext);
