@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { access, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { constants, homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openPi } from './pi-client.mjs';
 import { repository, assertRepositoryIdentity } from './acceptance-repository.mjs';
@@ -48,13 +48,30 @@ export async function fixture(t, scenario, options = {}) {
   const clients = [];
   let verified = false;
   const observedCodes = () => [...new Set(clients.flatMap(client => client.notices.flatMap(notice => [...notice.matchAll(/\b([A-Z][A-Z_]+):/g)].map(match => match[1]))))];
+  const failureDetails = () => clients.flatMap(client => client.notices.flatMap(notice => {
+    if (!notice.startsWith('FAILURE_DETAIL: ') || notice.length > 4096) return [];
+    let value; try { value = JSON.parse(notice.slice('FAILURE_DETAIL: '.length)); } catch { return []; }
+    const allowed = {
+      operation: ['model-setup', 'implementation-model', 'review-model', 'git-read', 'git-write', 'github-read', 'github-write', 'prepare', 'check', 'accept', 'cleanup', 'publish', 'command'],
+      kind: ['infrastructure', 'configuration', 'unknown', 'cancelled', 'unquiesced'],
+      reason: ['eof', 'dns', 'tls', 'timeout', 'connection-refused', 'connection-reset', 'service-unavailable', 'rate-limit', 'authentication', 'permission', 'quota-exhausted', 'missing-dependency', 'missing-configuration', 'unsupported-platform', 'invalid-response', 'output-limit', 'process-exited', 'process-terminated', 'cancelled', 'process-unquiesced', 'unclassified'],
+    };
+    if (!value || Object.entries(allowed).some(([key, values]) => !values.includes(value[key]))) return [];
+    const safe = Object.fromEntries(Object.keys(allowed).map(key => [key, value[key]]));
+    if (typeof value.transient === 'boolean') safe.transient = value.transient;
+    if (Number.isInteger(value.httpStatus) && value.httpStatus >= 100 && value.httpStatus <= 599) safe.httpStatus = value.httpStatus;
+    if (Number.isInteger(value.exitCode) && value.exitCode >= 0 && value.exitCode <= 255) safe.exitCode = value.exitCode;
+    if (typeof value.signal === 'string' && Object.hasOwn(constants.signals, value.signal)) safe.signal = value.signal;
+    if (['not-started', 'started', 'unknown'].includes(value.commandStart)) safe.commandStart = value.commandStart;
+    return [safe];
+  }));
   t.after(async () => {
     try { for (const client of clients) await client.close(); }
     finally {
       if (verified && !options.preserveOnPass) await rm(root, { recursive: true, force: true });
       else {
         preserved.push({ scenario, root });
-        if (!verified) results.push({ scenario, result: 'failed', observedCodes: observedCodes(), boundary: 'External assertions not completed; inspect test runner diagnostics and retained local fixture' });
+        if (!verified) results.push({ scenario, result: 'failed', observedCodes: observedCodes(), failureDetails: failureDetails(), boundary: 'External assertions not completed; inspect test runner diagnostics and retained local fixture. Empty failureDetails means no valid safe structured diagnostic was observed, not an inferred cause.' });
       }
       await persist();
     }
