@@ -68,7 +68,7 @@ const call = (path, content) => ({ name: 'write', arguments: { path, content } }
 export async function repairProvider(t, scenario) {
   let files; let initialCalls; let failure;
   let upstream; let releaseUpstream;
-  const barrier = { targetObserved: false, upstreamPr: undefined };
+  const barrier = { targetObserved: false, upstreamSubmission: undefined };
   const upstreamSubmitted = new Promise(resolve => { releaseUpstream = resolve; });
   let repairs = 0;
   const requests = []; const reviews = [];
@@ -79,8 +79,8 @@ export async function repairProvider(t, scenario) {
       if (req.url === '/_fixture/upstream-submitted') {
         const fact = JSON.parse(body);
         assert.equal(scenario, 'conflict-repair'); assert.equal(fact.ticket, upstream);
-        assert.match(fact.head, /^[a-f0-9]{40}$/); assert.ok(Number.isSafeInteger(fact.pr) && fact.pr > 0);
-        assert.equal(barrier.upstreamPr, undefined); barrier.upstreamPr = fact;
+        assert.match(fact.head, /^[a-f0-9]{40}$/); assert.equal(fact.state, 'submitted');
+        assert.equal(barrier.upstreamSubmission, undefined); barrier.upstreamSubmission = fact;
         releaseUpstream(); res.writeHead(204); res.end(); return;
       }
       assert.equal(req.headers.authorization === 'Bearer synthetic-local-only', true, 'model fixture must receive only its synthetic credential');
@@ -101,7 +101,7 @@ export async function repairProvider(t, scenario) {
               barrier.targetObserved = true;
               let timer;
               try { await Promise.race([upstreamSubmitted, new Promise((_resolve, reject) => {
-                timer = setTimeout(() => reject(new Error('Actual upstream PR notification did not arrive')), 120_000);
+                timer = setTimeout(() => reject(new Error('Actual upstream submission notification did not arrive')), 120_000);
               })]); } finally { clearTimeout(timer); }
             }
             calls = !repair ? upstream ? [call('fixture.mjs', addReservedCheck(files.fixture)), call('app.mjs', reservedApp(files.original))]

@@ -16,7 +16,7 @@ import { verifyResolutions, type AssertionFact } from './repair-progress.ts';
 export { GateBehaviorFailure, ReviewBlocked } from './gate-defect.ts';
 
 export interface Versions { H: string; B: string; C: string; M?: string; }
-export interface GateEvidence extends Evidence { phase: 'candidate' | 'actual'; versions: Versions; review: ReviewResult; }
+export interface GateEvidence extends Evidence { phase: 'candidate' | 'actual'; versions: Versions; review: ReviewResult; assertions: AssertionFact[]; }
 
 export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, versions: Versions, phase: 'candidate' | 'actual',
   proof?: ImplementationEvidence, repair: GateRepairContext = { previousBlockers: [] }): Promise<GateEvidence> {
@@ -93,7 +93,8 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
     await workspace.check();
     await verifyResolutions(cwd, codeSha, repair.previousBlockers, review, assertions);
     for (const old of repair.previousAssertions ?? []) {
-      if (old.command === 'accept' && !assertions.some(item => item.command === old.command && item.name === old.name)) {
+      if (old.command === 'accept' && commandResults.accept !== 'not-run'
+        && !assertions.some(item => item.command === old.command && item.name === old.name)) {
         throw new PreflightError('ACCEPTANCE_REGRESSED', 'A previously observed acceptance assertion disappeared; no repair or success may hide removed coverage');
       }
     }
@@ -137,6 +138,6 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
   }
   await workspace.remove();
   ctx.ui.notify(`GATE_PASSED: ${phase} ${codeSha} ${evidence.url}`, 'info');
-  return { ...evidence, phase, versions, review: review! };
+  return { ...evidence, phase, versions, review: review!, assertions };
   });
 }

@@ -29,11 +29,17 @@ export default function repairObserver(pi) {
       if (created) {
         const pr = JSON.parse(run('gh', ['api', `repos/${repository}/pulls/${created[1]}`]));
         if (pr.head.ref === `flow/ticket-${config.spec}-${config.ticket}`) { targetPr = pr.number; heads.add(pr.head.sha); }
-        if (config.upstream && pr.head.ref === `flow/ticket-${config.spec}-${config.upstream}`) {
+      }
+      if (config.upstream && String(message).startsWith('FLOW_TICKET_STATE: ')) {
+        const state = JSON.parse(String(message).slice('FLOW_TICKET_STATE: '.length));
+        if (state.ticket === config.upstream && state.state === 'submitted') {
+          const branch = `flow/ticket-${config.spec}-${config.upstream}`;
+          const ref = JSON.parse(run('gh', ['api', `repos/${repository}/git/ref/heads/${branch}`]));
+          if (ref.ref !== `refs/heads/${branch}` || ref.object.type !== 'commit' || !/^[a-f0-9]{40}$/.test(ref.object.sha)) throw new Error('Submitted upstream head is not independently observable');
           barriers.push(fetch(config.barrierUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ticket: config.upstream, pr: pr.number, head: pr.head.sha }), signal: AbortSignal.timeout(30_000) })
+            body: JSON.stringify({ ticket: config.upstream, state: 'submitted', head: ref.object.sha }), signal: AbortSignal.timeout(30_000) })
             .then(result => { if (result.status !== 204) throw new Error('Barrier refused'); })
-            .catch(() => { barrierErrors.push('Upstream PR observation could not reach the isolated model barrier'); }));
+            .catch(() => { barrierErrors.push('Upstream submission could not reach the isolated model barrier'); }));
         }
       }
       const repaired = new RegExp(`^TICKET_REPAIRED: #${config.ticket} [a-f0-9]{40} ([a-f0-9]{40})`).exec(message);

@@ -47,7 +47,9 @@ export async function integrateTicket(input: ExecutionInput, submitted: Submissi
   const { before, versions, candidate, submission } = validated;
   const { H, C } = versions;
   const reviewedGate = async (current: Versions, phase: 'candidate' | 'actual') => {
-    try { return await ticketGate(input, ticket, current, phase, submission.implementationEvidence, { previousBlockers: validated.previousBlockers }); }
+    try { return await ticketGate(input, ticket, current, phase, submission.implementationEvidence, {
+      previousBlockers: validated.previousBlockers, previousAssertions: candidate.assertions,
+    }); }
     catch (error) {
       if (isGateDefect(error) && !signal.aborted) {
         const codeSha = phase === 'candidate' ? current.C : current.M!;

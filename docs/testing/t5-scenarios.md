@@ -8,6 +8,7 @@
 | 普通非零、基础设施、无效报告、未停止进程 | 不派修复角色、不把它们当代码缺陷；复用 #10 的真实分类证据 |
 | 修复的准备、cleanup、发布或评论失败/未知 | 保留原缺陷与现场，更高优先级停止；不继续 Agent、不重复副作用 |
 | 每次新代码或候选基线 | 获取新的真实 C，重新检查/accept/review；旧通过/失败工件不能批准新版本 |
+| C 与 M 相同文件 tree，但项目按运行环境返回不同验收报告 | actual accept 已运行时必须包含 candidate 的全部稳定 accept IDs；未执行 accept 仍明确 not-run，不伪造逐条通过或把未运行当消失 |
 | 一项项真实解决缺陷 | 不设修复次数/总时限/预占预算，不存 attempt ledger；五次及以后的可验证进展仍继续 |
 | 无差异或无关代码噪声 | 不空提交；新 tree、SHA、URL、模型“已改善”不算进展；相同失败没有已验证解决时保留成果并暂停 |
 | 断言消失、旧通过退化、review 缺陷被重新措辞 | 不算进展；完整断言 IDs 与稳定旧 blocker 引用仍须逐项核对，不降低门禁 |
@@ -25,7 +26,7 @@
 2. `progressive-five`：固定真实 SDK 工具初始留下五个真实 CLI 缺陷，每次只解决一个，批准的完整断言集始终保留。至少五次修复后交付；检查同一 PR、每轮实际版本及下载工件、失败集合的真实变化。
 3. `no-progress-no-diff`：固定修复重放原文件，保留失败工件后 no-progress；没有空提交、第二 PR 或继续派工。
 4. `no-progress-noise`：修复只加无关注释，新 tree 仍产生同一失败集，独立 review 不认可解决；停止且保留真实新提交，不用代码噪声延长循环。
-5. `conflict-repair`：同 Spec 的 A/B 从同一旧基线真实修改同文件。B 的初始固定模型仅在观察到 A 的真实 `TICKET_PR` 及远端 readback 后返回写入，使 A 先进入 FIFO 集成；不靠 sleep，不等待会争用 B 所持资源的 A gate/Delivery。若屏障未到达，场景失败而非继续猜测。A 先交付后，B 在最新 B 上经历文本冲突和随后可执行的组合语义失败，在同一个 B PR 追加修复，最终通过。独立重算准备 tree、conflict stages、所有编辑段与实际 C/M，不调用产品 verifier 证明自己。
+5. `conflict-repair`：同 Spec 的 A/B 从同一旧基线真实修改同文件。B 的初始固定模型仅在观察到 A 的真实 `FLOW_TICKET_STATE submitted` 及精确远端 head readback 后返回写入，使 A 先进入 FIFO 集成；Ticket PR 只在持有集成控制权并选择最新 B 后首次创建；不靠 sleep，不等待会争用 B 所持资源的 A gate/Delivery。若屏障未到达，场景失败而非继续猜测。A 先交付后，B 在最新 B 上经历文本冲突和随后可执行的组合语义失败，在同一个 B PR 追加修复，最终通过。独立重算准备 tree、conflict stages、所有编辑段与实际 C/M，不调用产品 verifier 证明自己。
 6. `repair-needs-decision`：已有 PR 和失败证据后，修复角色明确返回 unresolved requirement 问题且不编辑；Ticket open、原 PR/head 保留，问题链接可读。
 
 固定 HTTP 响应仅控制缺陷/每次写入，真实 SDK 工具、项目命令、GitHub PR/merge/评论/Issues 与证据下载均真实执行。测试不得根据“第 N 轮”伪造 passed；断言结果必须来自实际 CLI。失败未到目标边界不能计通过。各场景最终 Node exit/信号、源码初末 SHA/dirty/fingerprint、host/local SDK、实际模型、仓库基线、外部断言与工件链接均写脱敏报告。

@@ -44,6 +44,7 @@ export function readFailure(f, failure) {
   return report;
 }
 export async function verifyRepairChain(f, result) {
+  const successful = result.gates.map(observation => download(f, observation));
   for (const observation of [...result.failures, ...result.gates]) {
     const report = download(f, observation);
     verifyProof(f.project, report.implementationEvidence, report.codeSha);
@@ -61,6 +62,13 @@ export async function verifyRepairChain(f, result) {
     assert.equal(pr.merged, true); assert.equal(pr.merge_commit_sha, result.M); assert.equal(pr.head.sha, result.proof.head);
     const actual = api(`repos/${repository}/git/commits/${result.M}`);
     assert.equal(actual.parents[1].sha, result.proof.head);
+    const candidate = successful.findLast(report => report.phase === 'candidate'); assert.ok(candidate);
+    const accepted = successful.findLast(report => report.codeSha === result.M) ?? candidate;
+    assert.equal(accepted.codeSha, result.M, 'actual-version acceptance must exist before closure');
+    for (const old of candidate.assertions.filter(item => item.command === 'accept')) {
+      assert.ok(accepted.assertions.some(item => item.command === 'accept' && item.name === old.name && item.passed),
+        'candidate acceptance IDs must remain observable and passed on the actual merge');
+    }
   }
 }
 
@@ -109,7 +117,7 @@ export async function repairFixture(t, scenario) {
       const observer = JSON.parse(pi.notices.findLast(item => item.startsWith('REPAIR_OBSERVER: ')).slice('REPAIR_OBSERVER: '.length));
       assert.deepEqual(observer.barrierErrors, []);
       if (conflict) {
-        assert.equal(fixed.barrier.targetObserved, true); assert.equal(fixed.barrier.upstreamPr?.ticket, upstream.number);
+        assert.equal(fixed.barrier.targetObserved, true); assert.equal(fixed.barrier.upstreamSubmission?.ticket, upstream.number);
         assert.equal(observer.started.length, 2);
         for (const started of observer.started) assert.equal(started.startedFrom, f.baseline);
       }

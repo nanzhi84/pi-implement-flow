@@ -281,8 +281,8 @@ explicit fixed HTTP model responses with actual tools, executable assertions,
 commits, PRs, comments and downloaded artifacts. They cover five successive
 improvements, unchanged/noisy non-progress, text plus semantic conflicts,
 requirements ambiguity and independently resolved review findings. The conflict
-fixture coordinates on a real upstream PR notification; it never sleeps to guess
-submission order or waits for a gate while holding a conflicting resource lease.
+fixture coordinates on a real upstream submission and remote head; it never sleeps to guess
+queue order or waits for a gate while holding a conflicting resource lease.
 
 Reports in `artifacts/repair-runs/` bind final Node exit and source fingerprints,
 host/local SDK versions, safe environment fields and remote facts. Independent
