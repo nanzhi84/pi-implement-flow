@@ -16,6 +16,9 @@ export interface ReviewResult {
   blockers: ReviewBlocker[];
   suggestions: string[];
 }
+const MAX_RESPONSE_BYTES = 48_000;
+const MAX_FINDINGS_BYTES = 48_000;
+const MAX_COMMENT_BYTES = 60_000;
 
 function invalid(message: string): never {
   throw new PreflightError('AGENT_RESULT_INVALID', message);
@@ -29,9 +32,26 @@ function record(value: unknown, keys: string[]): value is Record<string, unknown
 function text(value: unknown): value is string {
   return typeof value === 'string' && !!value.trim() && value.length <= 20_000 && !value.includes('\0');
 }
+function findingsText(blockers: ReviewBlocker[]): string {
+  return blockers.map(finding => `- ${finding.category}: ${finding.basis}\n  Impact: ${finding.impact}\n  Verify: ${finding.verification}`).join('\n');
+}
+
+export function reviewBlockerComment(ticket: number, phase: 'candidate' | 'actual', review: ReviewResult): string {
+  if (!Number.isSafeInteger(ticket) || ticket <= 0) invalid('Review comment requires a valid Ticket identity');
+  const body = `Independent review blocked Ticket #${ticket}.\n\n`
+    + `Phase: \`${phase}\`\nVersion: \`${review.codeSha}\`\nScope: \`${review.scopeDigest}\`\n\n`
+    + findingsText(review.blockers)
+    + (phase === 'actual'
+      ? '\n\nRemote merge already happened; this result is integrated-unaccepted. No closure or downstream release is authorized.'
+      : '\n\nNo implementation statement grants approval. The Ticket remains open.');
+  // Accepted findings leave room for this bounded framing. Defend the final
+  // remote payload too, so future formatting changes cannot silently exceed it.
+  if (Buffer.byteLength(body, 'utf8') > MAX_COMMENT_BYTES) invalid('Complete review comment exceeds the publication byte budget');
+  return body;
+}
 
 function result(source: string, expected: Pick<ReviewInput, 'codeSha' | 'scopeDigest'>): ReviewResult {
-  if (source.length > 512_000) invalid('Review Agent result exceeds the bounded response contract');
+  if (Buffer.byteLength(source, 'utf8') > MAX_RESPONSE_BYTES) invalid('Review Agent result exceeds the 48000 UTF-8 byte response contract');
   let value: unknown;
   try { value = JSON.parse(source); }
   catch { invalid('Review Agent must return one JSON result, without Markdown or extra text'); }
@@ -56,13 +76,18 @@ function result(source: string, expected: Pick<ReviewInput, 'codeSha' | 'scopeDi
       impact: blocker.impact, verification: blocker.verification,
     };
   });
+  if (Buffer.byteLength(findingsText(blockers), 'utf8') > MAX_FINDINGS_BYTES) {
+    invalid('Complete review findings exceed the 48000 UTF-8 byte publication contract');
+  }
   return { kind: 'review', codeSha: expected.codeSha, scopeDigest: expected.scopeDigest, blockers, suggestions: value.suggestions };
 }
 
 export async function runReview(input: ReviewInput): Promise<ReviewResult> {
   input.signal.throwIfAborted();
   const expected = { codeSha: input.codeSha, scopeDigest: input.scopeDigest };
-  if (!text(expected.codeSha) || !text(expected.scopeDigest)) invalid('Review requires controller-selected code and scope bindings');
+  if (!/^[a-f0-9]{40}$/.test(expected.codeSha) || !/^[a-f0-9]{64}$/.test(expected.scopeDigest)) {
+    invalid('Review requires exact controller-selected commit and scope digest bindings');
+  }
   const binding = JSON.stringify(expected);
   const prompt = `${input.prompt}\n\nIndependent review protocol:\n`
     + `The controller selected this exact version and effective scope: ${binding}. `
@@ -81,7 +106,11 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
     + '"blockers":[{"category":"correctness|security|spec|standard","basis":"concrete basis","impact":"concrete impact","verification":"verifiable resolution condition"}],'
     + '"suggestions":["optional non-blocking suggestion"]}. '
     + 'Choose one listed category for each blocker. Use empty arrays when there are no findings of that kind. '
-    + 'Return at most 100 items per array, at most 20000 characters per text, and at most 512000 characters in total. '
+    + 'Return at most 100 items per array and at most 20000 JavaScript string characters per text. '
+    + `The complete JSON response, including syntax and escapes, must fit ${MAX_RESPONSE_BYTES} UTF-8 bytes. `
+    + `All blocker text together, including category, Impact and Verify formatting, must fit ${MAX_FINDINGS_BYTES} UTF-8 bytes. `
+    + 'Keep every finding concise, actionable and complete; do not omit blockers or claim approval to fit the budget. '
+    + 'Oversized responses are invalid and stop the gate; the controller will never truncate findings or publish partial approval. '
     + 'Copy the exact controller bindings above. Your result does not itself perform delivery or replace native GitHub required review.';
   return result((await runRoleSession({ ...input, prompt }, 'review')).text, expected);
 }

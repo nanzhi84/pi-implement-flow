@@ -3,6 +3,7 @@ import { ensureDraftTotal, type ExecutionInput, type TicketResult } from './exec
 import { ticketGate, ReviewBlocked, type GateEvidence, type Versions } from './gate.ts';
 import { GitHub } from './github.ts';
 import { Remote, type PullRequest } from './remote.ts';
+import { reviewBlockerComment } from './review.ts';
 import { git } from './process.ts';
 import { requireRemoteHead, remoteHead } from './ticket-workspace.ts';
 
@@ -53,12 +54,7 @@ export async function integrateTicket(input: ExecutionInput, submitted: TicketRe
     catch (error) {
       if (error instanceof ReviewBlocked && !signal.aborted) {
         const codeSha = phase === 'candidate' ? current.C : current.M!;
-        const findings = await remote.comment(before.number, `Independent review blocked Ticket #${ticket.issue.number}.\n\n`
-          + `Phase: \`${phase}\`\nVersion: \`${codeSha}\`\nScope: \`${input.scopeDigest}\`\n\n`
-          + error.review.blockers.map(finding => `- ${finding.category}: ${finding.basis}\n  Impact: ${finding.impact}\n  Verify: ${finding.verification}`).join('\n')
-          + (phase === 'actual'
-            ? '\n\nRemote merge already happened; this result is integrated-unaccepted. No closure or downstream release is authorized.'
-            : '\n\nNo implementation statement grants approval. The Ticket remains open.'));
+        const findings = await remote.comment(before.number, reviewBlockerComment(ticket.issue.number, phase, error.review));
         ctx.ui.notify(`REVIEW_FINDINGS: ${phase} ${codeSha} ${findings.html_url}`, 'error');
       }
       throw error;

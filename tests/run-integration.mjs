@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 
 const names = ['real-integration', 'accept-failure', 'review-rejects-self-approval', 'evidence-unavailable',
-  'stale-head', 'stale-base', 'actual-merge-recheck-fails', 'actual-review-blockers-recorded', 'base-race-after-final-read'];
+  'stale-head', 'stale-base', 'actual-merge-recheck-fails', 'actual-review-blockers-recorded', 'base-race-after-final-read', 'review-response-too-large'];
 const selected = process.env.FLOW_INTEGRATION_SCENARIO;
 if (selected && !names.includes(selected)) throw new Error('Unsupported FLOW_INTEGRATION_SCENARIO');
 const remote = process.env.RUN_GITHUB_E2E === '1';

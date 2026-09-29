@@ -8,7 +8,12 @@ import { api, fixture, git, repository, runGreeting } from './execution-fixture.
 import { implementationFiles, integrationProvider } from './integration-provider.mjs';
 export { api, git, repository };
 export const names = ['real-integration', 'accept-failure', 'review-rejects-self-approval', 'evidence-unavailable',
-  'stale-head', 'stale-base', 'actual-merge-recheck-fails', 'actual-review-blockers-recorded', 'base-race-after-final-read'];
+  'stale-head', 'stale-base', 'actual-merge-recheck-fails', 'actual-review-blockers-recorded', 'base-race-after-final-read', 'review-response-too-large'];
+
+const privacyMarkers = ['FLOW_SYNTHETIC_CONTEXT_KEY_NOT_A_CREDENTIAL', 'FLOW_SYNTHETIC_BEARER_NOT_A_CREDENTIAL',
+  'FLOW_SYNTHETIC_URL_PASSWORD', 'FLOW_SYNTHETIC_PRIVATE_PATH'];
+const publicReference = 'https://github.com/nanzhi84/pi-implement-flow/pull/20#discussion_r4138507096';
+const privacyNote = `\n\n## Evidence privacy fixture\n\nThese non-functional, synthetic examples only exercise artifact redaction; they are not real credentials, resources or implementation requirements. Do not copy their values into implementation or review findings.\nAPI_KEY=${privacyMarkers[0]}\nSynthetic header: Bearer ${privacyMarkers[1]}\nSynthetic URL: https://fixture-user:${privacyMarkers[2]}@example.invalid/demo?token=synthetic\nSynthetic local path: /Users/${privacyMarkers[3]}/private-config\n[Public evidence reference](${publicReference})\n`;
 
 const requirement = `First add a real CLI acceptance assertion named whitespace-only-rejected to fixture.mjs; preserve every existing acceptance assertion and executable check. Apply this single rule: reject with exit code 2 and empty stdout if the name is missing, contains CR or LF, or name.trim() === ''; otherwise emit the existing greeting with the accepted name's exact original contents. The emptiness check uses JavaScript String.trim whitespace semantics; cover spaces, TAB, form feed, vertical tab, NBSP (U+00A0) and U+2003. Use trim only for emptiness detection, never to normalize an accepted name or its greeting. Preserve the exact Ada greeting and meaningful surrounding whitespace in accepted names. Only app.mjs and fixture.mjs may change. This Ticket requires additive acceptance coverage under the project rule permitting new behavior assertions before implementation; preserve every existing assertion and executable check. Do not change .pi/flow.json, commands, AGENTS.md or publish.mjs. Internal gates may merge the Ticket PR into its feature branch and close the Ticket only after actual-version evidence is complete. Keep the Spec open and total PR Draft; never merge main.`;
 
@@ -19,9 +24,10 @@ export async function integrationFixture(t, scenario) {
   const socket = `/tmp/pi-flow-${process.getuid()}-${lockKey}.sock`;
   await assert.rejects(access(socket), { code: 'ENOENT' }, 'never take over an existing controller or stale socket');
   const fixed = scenario === 'real-integration' ? undefined : await integrationProvider(t, scenario);
+  const privacy = scenario === 'actual-review-blockers-recorded';
   const f = await fixture(t, scenario, {
     stage: 'T3', fixed, preserveOnPass: scenario !== 'real-integration',
-    specBody: `## Problem Statement\n\nImplement JavaScript String.trim blank-name rejection in the synthetic greeting CLI. ${requirement}\n\n## Acceptance criteria\n\n- Add the named CLI assertion before implementation, covering spaces, TAB, form feed, vertical tab, NBSP (U+00A0) and U+2003 while preserving existing checks.\n- Reject a missing name, a name containing CR or LF, or a name with name.trim() === ''; otherwise preserve the accepted name's exact original contents in the greeting.\n- Deliver one independently reviewed Ticket PR through candidate and actual-version gates.\n- After verified integration close the Ticket, keep Spec open and total PR Draft, and preserve main.`,
+    specBody: `## Problem Statement\n\nImplement JavaScript String.trim blank-name rejection in the synthetic greeting CLI. ${requirement}\n\n## Acceptance criteria\n\n- Add the named CLI assertion before implementation, covering spaces, TAB, form feed, vertical tab, NBSP (U+00A0) and U+2003 while preserving existing checks.\n- Reject a missing name, a name containing CR or LF, or a name with name.trim() === ''; otherwise preserve the accepted name's exact original contents in the greeting.\n- Deliver one independently reviewed Ticket PR through candidate and actual-version gates.\n- After verified integration close the Ticket, keep Spec open and total PR Draft, and preserve main.${privacy ? privacyNote : ''}`,
     ticketBody: spec => `## What to build\n\n${requirement}\n\nPart of #${spec}.\n\n## Acceptance criteria\n\n- Reject with exit code 2 and no stdout if the name is missing, contains CR or LF, or name.trim() === ''; otherwise accept it.\n- The blank-name check uses JavaScript String.trim semantics; cover spaces, TAB, form feed, vertical tab, NBSP (U+00A0) and U+2003.\n- Ada and all accepted names, including meaningful surrounding whitespace, preserve their exact original contents in the greeting; use trim only for emptiness detection, never output normalization.\n- The candidate and actual merge acceptance reports include greeting-for-name, missing-name-rejected and whitespace-only-rejected.\n\n## Blocked by\n\nNone`,
   });
   // Registered after fixture teardown: its pi process must have exited first.
@@ -40,11 +46,11 @@ export async function integrationFixture(t, scenario) {
   });
   fixed?.setImplementation(await implementationFiles(f.project, scenario === 'review-rejects-self-approval'));
   const contract = JSON.parse(await readFile(join(f.project, '.pi/flow.json'), 'utf8'));
-  const mode = ['real-integration', 'review-rejects-self-approval', 'actual-review-blockers-recorded'].includes(scenario) ? 'observe' : scenario;
+  const mode = ['real-integration', 'review-rejects-self-approval', 'actual-review-blockers-recorded', 'review-response-too-large'].includes(scenario) ? 'observe' : scenario;
   let confirmation;
   const pi = await f.open({ onConfirm: event => { confirmation = event.message; return true; }, extensions: [fileURLToPath(new URL('./fixtures/integration-bridge.mjs', import.meta.url))] });
   assert.equal((await pi.request('prompt', { message: `/fixture-integration ${JSON.stringify({ mode, repository, spec: f.spec.number, ticket: f.ticket.number })}` })).success, true);
-  return { ...f, pi, fixed, contract, get confirmation() { return confirmation; },
+  return { ...f, pi, fixed, contract, privacy, get confirmation() { return confirmation; },
     async run() {
       const output = await pi.flow(`start ${f.spec.number}`, true);
       fixed?.assertHealthy();
@@ -114,6 +120,52 @@ function verifyImplementationEvidence(f, report) {
   assert.deepEqual([...latest.keys()].sort(), changed, 'the mutation chain covers every changed Git file');
   for (const [path, hash] of latest) assert.equal(hash, digest(proof.head, path), `the last completed write equals the raw H blob for ${path}`);
 }
+function verifyApprovedContext(f, report) {
+  const start = f.confirmation.indexOf('\n{');
+  assert.ok(start >= 0, 'actual user confirmation contains the approved snapshot');
+  const approved = JSON.parse(f.confirmation.slice(start + 1));
+  const context = report.approvedContext;
+  assert.equal(context.schema, 1); assert.equal(context.source, 'controller-approved-snapshot');
+  assert.equal(context.scopeDigest, report.scopeDigest);
+  assert.equal(report.scopeDigest, createHash('sha256').update(JSON.stringify(approved)).digest('hex'));
+  const checkText = (field, original) => {
+    assert.equal(field.sha256, createHash('sha256').update(original).digest('hex'));
+    assert.ok(Array.isArray(field.redactions));
+    assert.equal(typeof field.text, 'string');
+    for (const item of field.redactions) {
+      assert.deepEqual(Object.keys(item).sort(), ['count', 'kind']);
+      assert.ok(Number.isSafeInteger(item.count) && item.count > 0);
+      assert.ok(field.text.includes(`[REDACTED:${item.kind}]`));
+    }
+    if (!field.redactions.length) assert.equal(field.text, original, 'safe approved text is preserved exactly');
+  };
+  const approvedTicket = approved.plan.tickets.find(item => item.issue.number === f.ticket.number);
+  for (const [saved, original] of [[context.spec, approved.plan.spec], [context.ticket, approvedTicket.issue]]) {
+    assert.equal(saved.number, original.number); assert.equal(saved.url, `https://github.com/${repository}/issues/${original.number}`);
+    checkText(saved.title, original.title); checkText(saved.body, original.body);
+    assert.deepEqual(saved.title.redactions, []);
+  }
+  assert.deepEqual(context.ticket.body.redactions, []);
+  assert.deepEqual(context.ticket.dependencies, approvedTicket.dependencies);
+  assert.deepEqual(context.approvedChanges, [], 'discussion or model text cannot invent an approved change');
+  assert.equal(context.instructions.length, approved.instructions.length);
+  for (const [index, original] of approved.instructions.entries()) {
+    const saved = context.instructions[index]; checkText(saved.path, original.path); checkText(saved.content, original.content);
+    assert.deepEqual(saved.path.redactions, []); assert.deepEqual(saved.content.redactions, []);
+    assert.deepEqual(saved.roles, ['implementation', 'review'].filter(role => approved.contract.agents[role].instructions.includes(original.path)));
+  }
+  assert.equal(context.contract.source, '.pi/flow.json');
+  checkText(context.contract.snapshot, JSON.stringify(approved.contract, null, 2));
+  assert.deepEqual(context.contract.snapshot.redactions, []);
+  assert.match(context.redactionBoundary, /cannot be detected completely/);
+  if (f.privacy) {
+    for (const marker of privacyMarkers) assert.ok(!JSON.stringify(report).includes(marker), 'downloaded public report contains no synthetic sensitive value');
+    const redactions = context.spec.body.redactions;
+    for (const kind of ['credential-assignment', 'authorization', 'credential-url', 'private-path']) assert.equal(redactions.find(item => item.kind === kind)?.count, 1);
+    assert.ok(context.spec.body.text.startsWith(approved.plan.spec.body.split(privacyNote)[0]), 'all effective requirements remain readable before the non-functional privacy examples');
+    assert.ok(context.spec.body.text.includes(`[Public evidence reference](${publicReference})`), 'a strict public GitHub comment reference remains auditable');
+  } else assert.deepEqual(context.spec.body.redactions, []);
+}
 export function readGate(f, observation) {
   const match = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/releases\/download\/([^/]+)\/([^/]+)$/.exec(observation.url);
   assert.ok(match); assert.equal(match[1], repository);
@@ -149,6 +201,7 @@ export function readGate(f, observation) {
   assert.equal(report.review.scopeDigest, report.scopeDigest);
   assert.deepEqual(report.review.blockers, []);
   assert.ok(Array.isArray(report.review.suggestions));
+  verifyApprovedContext(f, report);
   verifyImplementationEvidence(f, report);
   return { report, url: observation.url, sha256: createHash('sha256').update(bytes).digest('hex') };
 }

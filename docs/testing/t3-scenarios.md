@@ -29,6 +29,8 @@
 | 最后读取后发生 B 竞态 | 最后读取完成后、真实 merge 前由测试外部写入者推进 B | 若远端实际合入，双 parent 检查发现偏差；显示 integrated-unaccepted，Ticket open，不解锁、不继续集成。不得声称 merge 已被阻止 |
 | C/M tree 相同但 M 验收失败 | 对实际 M 的命令执行边界注入确定性失败，并标明注入边界 | C 成功不能放行 M；保留已 merged 事实、Ticket open、总 PR Draft，停止后续自动化 |
 | 实际 M 的独立审查阻断项丢失 | 候选 C review 通过并真实 merge；M≠C 后固定 reviewer 返回带完整依据、影响及验证条件的阻塞项 | Ticket PR 评论持久化 phase=actual、精确 M/scope 及完整 category/basis/impact/verification，通知给出该评论链接；保留 merged 事实和功能分支 M，Ticket open、总 PR Draft、无关闭请求，C 工件不能替代失败的 M 审查 |
+| 合法审查意见超出单评论容量 | 既有实际 M 审查场景返回恰好 48000 UTF-8 bytes 的多字节 JSON，保留完整可操作的意见字段 | 带 phase/M/scope 的单条真实 GitHub 评论完整保留全部意见，UTF-8 字节数不超过 60000；不截断、不转成未知远端结果 |
+| 总响应以字符计数绕过字节预算 | 新增 review-response-too-large：候选 reviewer 返回 48001 UTF-8 bytes，但 JS 字符数及每字段均在旧上限内 | 提交评论前 AGENT_RESULT_INVALID，无 findings 评论、无 merge/close 请求、无 C 资格；保留 Ticket open 和失败现场，不能把无效响应当作空 blocker |
 | merge 成功但响应丢失 | 真实服务端已执行，客户端结果被测试边界丢弃 | 不重 merge，不关票、不解锁；结果未核对时保留控制权和现场。自动接续不是本票前提 |
 | M 验收期间范围或 feature 改变 | 验收执行中追加未批准范围变化或外部写入 | 当前放行失效；不把旧工件用于新范围，不关闭 Ticket |
 | 关票结果未知 | 真实关票响应丢失或后续核对不可用 | 区分已集成与关票待核对，不重复交付、不提前解锁 |
@@ -38,6 +40,8 @@
 ## 工件与可重复性
 
 实际 OpenAI 的 M 审查阻断暴露了独立的可观察缺口：候选阶段会回写完整 findings，实际阶段只报告通用错误，用户无法从 PR 找到阻塞依据和修复条件。新增 `actual-review-blockers-recorded` 先固定此行为约定，再修复统一的候选/实际审查记录路径。该场景通过真实 SDK 在候选上下文通过 review、在精确实际 M 上返回一项可追溯的合成 blocker；随后直接读取 GitHub PR 评论、Ticket、总 PR、feature 与 Git 对象，不用错误通知替代远端落盘证据。既有 `actual-merge-recheck-fails` 仍保留，因命令失败与审查 findings 持久化是不同的外部契约。
+
+PR #20 容量审查指出，旧 review 合法响应可大于单条 GitHub 评论。先明确多字节、总响应、JSON escape 与完整评论框架的边界，再把原始 JSON 和合并 blocker 文本各限制为 48000 UTF-8 bytes，最终评论限制为 60000 UTF-8 bytes，并在 prompt 中给出同一约定。恰好上限的实际 M blocker 扩展既有持久化场景；上限加一的候选响应新增独立场景，因为既有 self-approval 仍须验证有效 review 阻断与完整意见落盘。所有超限均明确拒绝，绝不截断或丢弃意见来制造通过。
 
 真实 OpenAI reviewer 暴露了测试先行的证据缺口：最终 diff 不能证明写入顺序。补充控制器实际写入证据前，先明确失败方式：无变化重写不算进展；测试占位版本不能证明最终断言先于实现；同一文件多次修改须核对完整摘要链；部分写入失败、证据容量不足、命令改变源码或链与实际 H 不符时停止；C/M 内容变化不得沿用不匹配的早期摘要。
 
@@ -50,4 +54,4 @@
 - 最终交付证据必须绑定实际交付的代码版本；dirty 调试报告不冒充提交版本的验收结果。源码版本变化后按受影响行为重新验证。
 - 工件不得包含凭据、原始模型会话、个人路径、生产数据或未经处理的 stderr。失败现场保留；公开证据与本地私有定位信息分开。不能为清理场景删除仍需核对的成果。
 - 入口：`PI_BIN=/path/to/openai-capable/pi PI_PROVIDER=openai PI_MODEL=gpt-6-astra RUN_GITHUB_E2E=1 npm run test:integration`。`FLOW_INTEGRATION_SCENARIO` 可选择单一场景。主机 pi 0.99.1 提供当前 OpenAI 认证；开发 SDK 0.87.1 单独记录。
-- 当前最小套件为 9 个场景：real-integration、accept-failure、review-rejects-self-approval、evidence-unavailable、stale-head、stale-base、actual-merge-recheck-fails、actual-review-blockers-recorded、base-race-after-final-read；原生 required review 拒绝复用同 SHA 的 T1 测试。表中其余时序由后续生命周期/恢复 Ticket 验证，不把设计表视为全部已通过。
+- 当前最小套件为 10 个场景：real-integration、accept-failure、review-rejects-self-approval、evidence-unavailable、stale-head、stale-base、actual-merge-recheck-fails、actual-review-blockers-recorded、base-race-after-final-read、review-response-too-large；原生 required review 拒绝复用同 SHA 的 T1 测试。表中其余时序由后续生命周期/恢复 Ticket 验证，不把设计表视为全部已通过。

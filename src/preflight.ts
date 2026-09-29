@@ -136,7 +136,8 @@ export class FlowController {
           signal.throwIfAborted();
         };
         const execution = { cwd: ctx.cwd, repository: github.repository, feature,
-          base: sha, plan, contract, scopeDigest: approvedDigest, ctx: { ...ctx, model: approvedModel }, signal, assertScope };
+          base: sha, plan, contract, approvedInstructions: instructions,
+          scopeDigest: approvedDigest, ctx: { ...ctx, model: approvedModel }, signal, assertScope };
         let result = await executeFirstTicket(execution);
         this.tickets = [result];
         if (result.pr) {

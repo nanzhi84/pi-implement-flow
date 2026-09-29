@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { instructionSnapshot } from './agents.ts';
 import { PreflightError, readContract } from './contract.ts';
 import { publishEvidence, type Evidence } from './evidence.ts';
+import { evidenceContext } from './evidence-context.ts';
 import type { ExecutionInput } from './execution.ts';
 import type { TicketPlan } from './plan.ts';
 import { verifyMutationEvidence, type ImplementationEvidence } from './mutation-evidence.ts';
@@ -21,12 +22,13 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
   const codeSha = phase === 'candidate' ? versions.C : versions.M;
   if (!codeSha) throw new PreflightError('VERSION_INVALID', 'Actual integration SHA is required');
   signal.throwIfAborted();
+  const approvedInstructions = input.approvedInstructions;
+  const approvedContext = evidenceContext(input.repository, input.plan, ticket, contract, approvedInstructions, input.scopeDigest);
   ctx.ui.notify(`GATE_STARTED: ${phase} ${codeSha}`, 'info');
   const workspace = await createProbe(cwd, codeSha, signal);
   const reportPath = join(workspace.resources, 'gate.json');
   const env = { FLOW_RESOURCE_DIR: workspace.resources, FLOW_CODE_SHA: codeSha, FLOW_REPOSITORY: input.repository,
     FLOW_REPORT: reportPath, FLOW_STAGE: phase };
-  const approvedInstructions = await instructionSnapshot(cwd, contract);
   if (digest(await readContract(workspace.cwd)) !== digest(contract)
     || digest(await instructionSnapshot(workspace.cwd, contract)) !== digest(approvedInstructions)) {
     throw new PreflightError('SCOPE_CHANGED', 'Candidate changed approved commands or role instructions; preserve work and request a scope decision');
@@ -69,7 +71,7 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
   const report = { schema: 3, generator: 'pi-implement-flow/ticket-gate-v1', kind: 'ticket-gate', phase,
     repository: input.repository, spec: input.plan.spec.number, ticket: ticket.issue.number,
     codeSha, scopeDigest: input.scopeDigest, contractDigest: digest(contract), instructionsDigest: digest(approvedInstructions),
-    versions, commandSource: '.pi/flow.json', commands: ['prepare', 'check', 'accept', 'cleanup'],
+    versions, approvedContext, commandSource: '.pi/flow.json', commands: ['prepare', 'check', 'accept', 'cleanup'],
     commandDefinitions: Object.fromEntries(['prepare', 'check', 'accept', 'cleanup'].map(name => [name, contract.commands[name as keyof typeof contract.commands]])),
     commandTimeoutMs: contract.commandTimeoutMs,
     reviewSource: { isolation: 'independent-context', tools: contract.agents.review.tools,

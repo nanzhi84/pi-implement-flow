@@ -7,6 +7,20 @@ export function textContent(message) {
   return typeof message.content === 'string' ? message.content
     : (message.content ?? []).map(part => part.text ?? '').join('\n');
 }
+function sizedReview(review, bytes) {
+  // Synthetic multilingual evidence exercises the public UTF-8 response budget.
+  // The actionable finding remains intact; only this fixture adds capacity text.
+  const blocker = review.blockers[0];
+  blocker.basis += '\nSynthetic multilingual capacity evidence: ';
+  const marker = '核验🙂';
+  const available = bytes - Buffer.byteLength(JSON.stringify(review), 'utf8');
+  assert.ok(available > 0);
+  blocker.basis += marker.repeat(Math.floor(available / Buffer.byteLength(marker, 'utf8')))
+    + 'x'.repeat(available % Buffer.byteLength(marker, 'utf8'));
+  assert.equal(Buffer.byteLength(JSON.stringify(review), 'utf8'), bytes);
+  assert.ok(['basis', 'impact', 'verification'].every(key => blocker[key].length <= 20_000));
+  return review;
+}
 function promptObject(input) {
   for (const message of input.messages.filter(item => item.role === 'user').reverse()) {
     const text = textContent(message);
@@ -104,6 +118,15 @@ export async function integrationProvider(t, scenario) {
               basis: `Synthetic actual-version finding for ${context.codeSha}: the acceptance output lacks a separately named assertion for the approved newline-rejection behavior.`,
               impact: 'A newline-rejection regression could be absent from the visible acceptance index; this deterministic reviewer withholds approval for the actual merge.',
               verification: 'Add an explicit newline CLI assertion while preserving existing checks, then rerun acceptance and independent review on the actual integrated version.' }];
+            if (context.phase === 'actual') sizedReview(answer, 48_000);
+          }
+          if (scenario === 'review-response-too-large') {
+            assert.equal(context.phase, 'candidate');
+            answer.blockers = [{ category: 'spec',
+              basis: 'Synthetic oversized candidate review: the declared newline rejection needs an explicit named acceptance assertion.',
+              impact: 'Without a visible named assertion, a future regression could evade the published acceptance index.',
+              verification: 'Preserve existing assertions and add a named newline rejection check before requesting independent review.' }];
+            sizedReview(answer, 48_001);
           }
           reviews.push(answer);
         }

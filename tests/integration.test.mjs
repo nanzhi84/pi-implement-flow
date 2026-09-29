@@ -68,6 +68,7 @@ test('real OpenAI model delivers and independently reviews the actual integrated
     const sourceEvents = report => report.implementationEvidence.mutations.map(({ matchesDeliveredFile, ...event }) => event);
     assert.deepEqual(sourceEvents(accepted.report), sourceEvents(c.report), 'C and M retain the same completed implementation write history');
   }
+  assert.deepEqual(accepted.report.approvedContext, c.report.approvedContext, 'C and M retain the same readable controller-approved requirements and instructions');
   assert.equal(readGate(f, candidate(observed)).sha256, c.sha256, 'historical C report must retain its exact bytes');
   assert.deepEqual(observed.mergeRequests.map(request => ({ sha: request.sha, method: request.method })), [{ sha: versions.H, method: 'merge' }]);
   assert.equal(observed.closeRequests.length, 1);
@@ -87,7 +88,7 @@ test('real OpenAI model delivers and independently reviews the actual integrated
       mutations: mutations.length, finalAcceptanceWrittenAt: acceptanceWritten.order, firstImplementationWrittenAt: implementationWritten.order,
       boundary: 'Raw Git bytes independently anchor completed controlled writes; this proves final acceptance content was written first, not that a failing test ran first.' },
     evidence: [c, ...(accepted === c ? [] : [accepted])].map(item => ({ url: item.url, sha256: item.sha256, codeSha: item.report.codeSha })),
-    assertions: ['original T2 baseline/PR identity/context/scope/main assertions retained', 'real OpenAI implementation and independent reviewer', 'new CLI assertion plus existing assertions executed', 'raw baseline/H blobs anchor complete mutation chains and changed-file coverage', 'final acceptance bytes written before first effective implementation mutation', 'C/M preserve source events and bind delivered-file matches to actual bytes', 'C parents verified', 'merge constrained to H', 'actual M parents/tree verified', 'actual SHA revalidated when different', 'historic C bytes preserved', 'remote M rejects String.trim spaces/TAB/FF/VT/NBSP/U+2003 and preserves accepted name bytes; missing/CR/LF remain rejected', 'Ticket closes after gate evidence', 'controller attributes command definitions and isolated review source', 'Draft total links full delivery/evidence chain', 'Spec open; total PR Draft; main unchanged'] });
+    assertions: ['original T2 baseline/PR identity/context/scope/main assertions retained', 'real OpenAI implementation and independent reviewer', 'new CLI assertion plus existing assertions executed', 'raw baseline/H blobs anchor complete mutation chains and changed-file coverage', 'final acceptance bytes written before first effective implementation mutation', 'C/M preserve source events and bind delivered-file matches to actual bytes', 'C/M retain the same readable approved Spec/Ticket/dependencies/instructions/contract snapshot verified against the fixture', 'C parents verified', 'merge constrained to H', 'actual M parents/tree verified', 'actual SHA revalidated when different', 'historic C bytes preserved', 'remote M rejects String.trim spaces/TAB/FF/VT/NBSP/U+2003 and preserves accepted name bytes; missing/CR/LF remain rejected', 'Ticket closes after gate evidence', 'controller attributes command definitions and isolated review source', 'Draft total links full delivery/evidence chain', 'Spec open; total PR Draft; main unchanged'] });
 });
 
 test('candidate executable acceptance failure cannot obtain integration eligibility', options('accept-failure'), async t => {
@@ -210,6 +211,9 @@ test('actual-version review blockers persist on the merged PR with a navigable n
   assert.deepEqual(f.fixed.reviews[0].blockers, []);
   const review = f.fixed.reviews[1];
   assert.equal(review.scopeDigest, c.report.scopeDigest); assert.equal(review.blockers.length, 1);
+  assert.equal(Buffer.byteLength(JSON.stringify(review), 'utf8'), 48_000, 'valid multilingual review reaches the public response byte budget');
+  assert.ok(JSON.stringify(review).length < 48_000, 'UTF-8 budget is distinct from JavaScript character count');
+  assert.ok(requests[1].input.messages.map(textContent).join('\n').includes('48000 UTF-8 bytes'), 'reviewer is told the enforced response budget');
   for (const phase of ['prepare', 'check', 'accept', 'cleanup']) assert.ok(observed.commands.some(command => command.phase === 'actual' && command.command === phase && command.sha === versions.M));
   assert.equal(observed.gates.filter(gate => gate.phase === 'actual').length, 0, 'C evidence cannot approve the rejected actual version');
   assert.equal(readGate(f, candidate(observed)).sha256, c.sha256, 'historical C evidence retains its exact bytes');
@@ -218,6 +222,8 @@ test('actual-version review blockers persist on the merged PR with a navigable n
     && comment.body.includes(`Version: \`${versions.M}\``) && comment.body.includes(`Scope: \`${review.scopeDigest}\``)
     && review.blockers.every(blocker => ['category', 'basis', 'impact', 'verification'].every(key => comment.body.includes(blocker[key]))));
   assert.equal(findings.length, 1, 'complete actual-version findings must be stored once on the real Ticket PR');
+  assert.ok(Buffer.byteLength(findings[0].body, 'utf8') <= 60_000, 'full findings plus phase/version/scope fit one conservative comment budget');
+  assert.doesNotMatch(output, /REMOTE_RESULT_UNKNOWN:/, 'valid bounded findings must not fail from oversized publication');
   assert.ok(findings[0].html_url.startsWith(`${pr.html_url}#issuecomment-`));
   assert.ok(output.includes(`REVIEW_FINDINGS: actual ${versions.M} ${findings[0].html_url}`), 'notification links the persisted version-bound review record');
   assert.match(output, /INTEGRATED_UNACCEPTED:/); assert.doesNotMatch(output, /TICKET_DELIVERED:/);
@@ -230,8 +236,30 @@ test('actual-version review blockers persist on the merged PR with a navigable n
   f.pass({ versions, ticketPr: pr.html_url, totalPr: total[0].html_url, findingsComment: findings[0].html_url,
     review: { phase: 'actual', codeSha: review.codeSha, scopeDigest: review.scopeDigest, blockers: review.blockers },
     candidateEvidence: { url: c.url, sha256: c.sha256 },
-    injection: 'fixed HTTP reviewer passes C and returns one explicit blocker only in the fresh actual-M SDK review; real GitHub merge and comment writes are unchanged',
-    assertions: ['C independently passes before real GitHub merge', 'distinct M receives fresh review after actual commands', 'full actual phase/M/scope/category/basis/impact/verification persisted once on Ticket PR', 'notification links the remotely readable findings', 'C evidence cannot substitute for failed actual review', 'merged parents/tree and feature M retained', 'status retains integrated-unaccepted and M', 'exactly one merge; no close request or delivery', 'Ticket/Spec open; total Draft; main unchanged'] });
+    injection: 'fixed HTTP reviewer passes C and returns one explicit multilingual blocker in an exact 48000-byte JSON result only in fresh actual-M SDK review; real GitHub merge and comment writes are unchanged',
+    assertions: ['C independently passes before real GitHub merge', 'distinct M receives fresh review after actual commands', 'full actual phase/M/scope/category/basis/impact/verification persisted once on Ticket PR', '48000-byte UTF-8 review fits a complete single comment without truncation or unknown publication', 'reviewer prompt states the enforced byte budget', 'notification links the remotely readable findings', 'C evidence cannot substitute for failed actual review', 'merged parents/tree and feature M retained', 'status retains integrated-unaccepted and M', 'exactly one merge; no close request or delivery', 'Ticket/Spec open; total Draft; main unchanged'] });
+});
+
+test('oversized UTF-8 review stops before findings publication or merge', options('review-response-too-large'), async t => {
+  const f = await integrationFixture(t, 'review-response-too-large');
+  const output = await f.run(); const observed = await f.observer();
+  const requests = f.fixed.requests.filter(request => request.role === 'review');
+  assert.equal(requests.length, 1, 'invalid response is not retried in a new review');
+  const review = f.fixed.reviews[0]; const response = JSON.stringify(review);
+  assert.equal(Buffer.byteLength(response, 'utf8'), 48_001);
+  assert.ok(response.length < 48_000, 'character-only validation would miss this oversized response');
+  assert.ok(['basis', 'impact', 'verification'].every(key => review.blockers[0][key].length <= 20_000));
+  assert.match(output, /AGENT_RESULT_INVALID:/); assert.doesNotMatch(output, /REVIEW_FINDINGS:|REMOTE_RESULT_UNKNOWN:/);
+  assert.equal(observed.gates.length, 0, 'invalid candidate review grants no C evidence');
+  assert.equal(observed.mergeRequests.length, 0); assert.equal(observed.closeRequests.length, 0);
+  const pr = ticketPull(f);
+  const comments = api(`repos/${repository}/issues/${pr.number}/comments`);
+  assert.ok(comments.every(comment => !comment.body.includes('Independent review blocked')
+    && !comment.body.includes(review.blockers[0].verification)), 'oversized findings are not submitted, truncated or split into remote comments');
+  assertNoDelivery(f, output);
+  f.pass({ ticketPr: pr.html_url, reviewCodeSha: review.codeSha,
+    injection: 'real SDK candidate reviewer receives a fixed multilingual JSON result of 48001 UTF-8 bytes; GitHub writes remain real',
+    assertions: ['response exceeds byte budget despite permitted character and field counts', 'one real SDK review then AGENT_RESULT_INVALID', 'no truncated or split findings comment', 'no C approval or merge/close request', 'Ticket/Spec open; feature and main unchanged; failed workspace retained'] });
 });
 
 test('a base race after final reads is reported as merged but unaccepted without rollback', options('base-race-after-final-read'), async t => {
