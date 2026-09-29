@@ -1,28 +1,33 @@
 import { PreflightError, readContract } from './contract.ts';
 import { GitHub } from './github.ts';
+import { readPlan } from './plan.ts';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 
 export default function implementFlow(pi: ExtensionAPI) {
   pi.registerCommand('flow', {
-    description: 'Preflight a planned Spec: /flow start <issue>; /flow status',
+    description: 'Preflight a planned Spec: /flow start <issue> [--concurrency N]; /flow status',
     handler: async (args, ctx) => {
       if (args.trim() === 'status') {
         ctx.ui.notify('flow: idle', 'info');
         return;
       }
-      if (!/^start [1-9]\d*$/.test(args.trim())) {
-        ctx.ui.notify('Usage: /flow start <issue>; /flow status', 'error');
+      const input = /^start ([1-9]\d*)(?: --concurrency ([1-9]\d*))?$/.exec(args.trim());
+      if (!input) {
+        ctx.ui.notify('Usage: /flow start <issue> [--concurrency N]; /flow status', 'error');
         return;
       }
       try {
+        const number = Number(input[1]);
+        const concurrency = Number(input[2] ?? 2);
+        if (![number, concurrency].every(Number.isSafeInteger)) throw new PreflightError('INPUT_INVALID', 'Issue number and concurrency must be positive safe integers');
         await readContract(ctx.cwd);
         const github = await GitHub.fromOrigin(ctx.cwd);
-        const number = Number(args.trim().split(' ')[1]);
-        if (!Number.isSafeInteger(number)) throw new PreflightError('INPUT_INVALID', 'Issue number exceeds supported integer range');
-        const spec = await github.issue(number);
-        const tickets = await github.children(number);
-        // This is a read result, not approval or a validated execution plan.
-        ctx.ui.notify(`PLAN_READ: Spec #${spec.number}; Tickets ${tickets.map(ticket => `#${ticket.number}`).join(', ')}; concurrency 2`, 'info');
+        const { spec, tickets } = await readPlan(github, number);
+        // Structural validation is not approval or semantic completeness.
+        ctx.ui.notify(`PLAN_READ: Spec #${spec.number}; Tickets ${tickets.map(ticket => `#${ticket.issue.number}`).join(', ')}; concurrency ${concurrency}`, 'info');
+        const edges = tickets.filter(ticket => ticket.dependencies.length).map(ticket =>
+          `#${ticket.issue.number} <- ${ticket.dependencies.map(dependency => `#${dependency}`).join(', ')}`);
+        ctx.ui.notify(`DEPENDENCIES: ${edges.join('; ') || 'none'}; closed Issues are not proof of integration`, 'info');
         await github.inspectProtection(`flow/spec-${number}`);
       } catch (error) {
         ctx.ui.notify(error instanceof PreflightError

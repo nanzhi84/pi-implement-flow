@@ -40,7 +40,15 @@ test('real pi rejects malformed execution contracts before any confirmation', as
   evidence.push({ scenario: 'invalid-contract', result: 'passed', assertions: ['CONTRACT_INVALID', 'idle'] });
 });
 
-test('real GitHub unreadable protection refuses a well-formed direct-child plan', { skip: process.env.RUN_GITHUB_E2E !== '1' }, async t => {
+const planningScenarios = [
+  { name: 'readable-rules-still-fail-closed', spec: 1, expected: /PREFLIGHT_INCOMPLETE/, plan: /PLAN_READ: Spec #1; Tickets #2; concurrency 2/ },
+  { name: 'missing-acceptance-agreement', spec: 3, expected: /PLAN_INCOMPLETE.*#3.*acceptance/ },
+  { name: 'cyclic-dependencies', spec: 4, expected: /DEPENDENCY_CYCLE.*#5 -> #6 -> #5/ },
+  { name: 'dependency-outside-spec', spec: 7, expected: /DEPENDENCY_INVALID.*#8.*#2/ },
+  { name: 'native-dependency-plan', spec: 9, concurrency: 3, expected: /DEPENDENCIES: #11 <- #10/, plan: /PLAN_READ: Spec #9; Tickets #10, #11; concurrency 3/ },
+];
+for (const scenario of planningScenarios) {
+ test(`real pi and GitHub: ${scenario.name}`, { skip: process.env.RUN_GITHUB_E2E !== '1' }, async t => {
   const root = await mkdtemp(join(tmpdir(), 'flow-github-'));
   let pi;
   t.after(async () => { try { await pi?.close(); } finally { await cleanup(root); } });
@@ -52,15 +60,17 @@ test('real GitHub unreadable protection refuses a well-formed direct-child plan'
   execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/nanzhi84/pi-implement-flow-acceptance.git'], { cwd: root });
   pi = await openPi(root, join(root, 'agent'));
   const before = execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' });
-  const output = await pi.flow('start 1');
-  assert.match(output, /PLAN_READ: Spec #1; Tickets #2; concurrency 2/);
-  assert.match(output, /PROTECTION_UNVERIFIABLE/);
+  const output = await pi.flow(`start ${scenario.spec}${scenario.concurrency ? ` --concurrency ${scenario.concurrency}` : ''}`);
+  if (scenario.plan) assert.match(output, scenario.plan);
+  else assert.doesNotMatch(output, /PLAN_READ/);
+  assert.match(output, scenario.expected);
   assert.match(await pi.flow('status'), /idle/);
   assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }), before);
-  evidence.push({ scenario: 'private-repository-protection-unreadable', result: 'passed',
-    repository: 'nanzhi84/pi-implement-flow-acceptance', spec: 1, tickets: [2],
-    assertions: ['native child plan read', 'PROTECTION_UNVERIFIABLE', 'idle', 'Git unchanged'] });
-});
+  evidence.push({ scenario: scenario.name, result: 'passed',
+    repository: 'nanzhi84/pi-implement-flow-acceptance', spec: scenario.spec,
+    assertions: [String(scenario.expected), 'idle', 'Git unchanged'] });
+ });
+}
 
 test.after(async () => {
   await mkdir('artifacts', { recursive: true });

@@ -1,15 +1,20 @@
 # Execution contract — T1 partial implementation
 
 **This version cannot start or dispatch a flow.** `/flow start <issue-number>`
-reads a local contract, the origin repository's Spec and native direct children,
-then attempts to read active feature-branch rules. Inaccessible rules fail closed.
-Even when rules are readable it returns `PREFLIGHT_INCOMPLETE`. `PLAN_READ` is not
-plan approval or evidence that dependencies, permissions, or commands are valid.
+reads a local contract, validates structural planning and dependency edges from
+the origin repository's Spec/native direct children, then attempts to read active
+feature-branch rules. Inaccessible rules fail closed. Even when rules are readable
+it returns `PREFLIGHT_INCOMPLETE`. `PLAN_READ` is not plan approval, semantic
+completeness, integrated dependency delivery, or verified permissions/commands.
+`--concurrency N` accepts positive safe integers and defaults to 2; it only changes
+the displayed plan until startup/execution exists.
 
 ## Responsibilities and trust
 
 - `src/extension.ts`: real pi command and sanitized diagnostics; no model tool.
 - `src/contract.ts`: local JSON boundary and explicitly selected child resources.
+- `src/plan.ts`: structural planning, explicit/native dependency agreement,
+  same-Spec membership and cycle diagnostics; never infers delivery from closure.
 - `src/github.ts`: read-only GitHub REST through authenticated `gh`; 30-second
   call timeout, bounded response size, no added retries or remote writes.
 - No persistent execution ledger, worktrees, child agents, or merge operation.
@@ -46,10 +51,24 @@ Required fields (unknown keys are rejected):
   `providerMaxRetries: 0` to avoid stacked provider retries. These are underlying
   transport settings, not limits on implementation repair rounds.
 
+## Planning format
+
+A Spec has `## Problem Statement` and a bullet/numbered `## Acceptance criteria`
+(or the parent Spec's `## Testing Decisions`). Tickets have `## What to build`
+and `## Acceptance criteria`. Missing/duplicate sections fail closed; fenced
+examples do not supply planning sections. These checks validate structure, not
+whether natural-language requirements are actually sufficient.
+
+All Tickets must be native direct children in the same repository. Native GitHub
+blocked-by edges are read with pagination. When absent, an explicit `## Blocked
+by` section must declare `None` or same-repository `#number`/Issue URL references.
+When both native and textual dependencies exist they must agree. Dependencies
+outside the selected direct-child set and cycles are rejected with Issue numbers.
+Closed Issues remain graph nodes, not automatically delivered dependencies.
+
 ## Remaining T1 acceptance (do not close #2)
 
-Dependency and acceptance-content validation; complete plan/range confirmation;
-configurable concurrency; local repository singleton control; separate internal
+Complete semantic scope/plan confirmation; local repository singleton control; separate internal
 review readiness and GitHub-native review/permissions checks (including classic
 protection); isolated project preparation/cleanup/check/accept/publish probes;
 safe start and lifecycle pause; successful real pi/GitHub acceptance.

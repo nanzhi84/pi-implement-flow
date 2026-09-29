@@ -61,6 +61,7 @@ export class GitHub {
   }
   async issue(number: number): Promise<Issue> { return issue(await this.get(`issues/${number}`)); }
   async children(number: number): Promise<Issue[]> { return (await this.list(`issues/${number}/sub_issues`)).map(issue); }
+  async blockers(number: number): Promise<Issue[]> { return (await this.list(`issues/${number}/dependencies/blocked_by`)).map(issue); }
 
   async inspectProtection(featureBranch: string): Promise<void> {
     try {
