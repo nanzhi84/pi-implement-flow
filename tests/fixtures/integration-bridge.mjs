@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { repository, assertRepositoryIdentity } from '../acceptance-repository.mjs';
 
 // Observes actual UI/CLI boundaries. No production module or GitHub result is mocked.
 export default function integrationBridge(pi) {
@@ -123,8 +124,12 @@ export default function integrationBridge(pi) {
   pi.registerCommand('fixture-integration', { handler: async (text, ctx) => {
     if (state.configured) throw new Error('Integration observer may only be configured once');
     const config = JSON.parse(text);
-    if (config.repository !== 'nanzhi84/pi-implement-flow-acceptance' || ![config.spec, config.ticket].every(Number.isSafeInteger)
+    if (config.repository !== repository || ![config.spec, config.ticket].every(value => Number.isSafeInteger(value) && value > 0)
       || !['observe', 'accept-failure', 'evidence-unavailable', 'stale-head', 'stale-base', 'actual-merge-recheck-fails', 'base-race-after-final-read'].includes(config.mode)) throw new Error('Invalid isolated integration fixture');
+    state.cwd = ctx.cwd;
+    const origin = git('remote', 'get-url', 'origin');
+    if (origin !== `https://github.com/${repository}.git`) throw new Error('Integration observer origin differs from its isolated fixture');
+    assertRepositoryIdentity(JSON.parse(run('gh', ['api', `repos/${repository}`])));
     Object.assign(state, config, { cwd: ctx.cwd, feature: `flow/spec-${config.spec}`, configured: true });
     install(ctx);
   } });
