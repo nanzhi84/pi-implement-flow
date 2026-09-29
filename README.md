@@ -73,7 +73,13 @@ Test processes run serially except deliberate competing-controller scenarios.
 Startup additionally validates real greeting assertions, preparation failure,
 remote artifact bytes/version, independent-role auth refusal, cross-clone
 controller exclusion, contract edits during confirmation, session replacement,
-fork/tree/reload and rejection of late approval.
+fork/tree/reload and rejection of late approval. Clean probe HEAD drift is also
+rejected and preserved. Cleanup/publish quiescence cases drive real commands but
+inject the `process.kill(..., 0)` liveness observation at the OS boundary after the
+actual child exits. They prove conservative ownership retention on uncertainty,
+not that this machine produced a genuinely unkillable kernel process. Test-only
+stale socket cleanup occurs only after the owned pi process exits and `lsof`
+confirms no live owner (these two fault cases require `lsof`).
 
 ### Evidence
 
@@ -91,6 +97,9 @@ FLOW_ACCEPTANCE_FAIL_CLEANUP=1 npm test
 
 The repository was made public with user approval. Historical releases such as
 `acceptance-32e3acf` describe old code/environment and never release new versions.
+A deliberate red test at 55d6ccc reproduced invalid old-SHA publication. That
+negative-test Release is explicitly marked INVALID and retained; protocol-v2
+reports and new clean-SHA suite evidence supersede it, never reuse it for release.
 Preserve remote evidence at least 90 days and while related review remains open.
 Do not publish raw logs, credentials, private paths or production data.
 

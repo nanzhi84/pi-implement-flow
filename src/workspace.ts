@@ -13,7 +13,8 @@ export async function baseline(cwd: string, feature: string, signal: AbortSignal
     const sha = (await git(cwd, ['rev-parse', 'HEAD'], signal)).trim();
     let refs: string;
     try { refs = await git(cwd, ['ls-remote', '--heads', 'origin', 'refs/heads/main', `refs/heads/${feature}`], signal); }
-    catch {
+    catch (error) {
+      if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
       signal.throwIfAborted();
       throw new PreflightError('REMOTE_READ_FAILED', 'Cannot read remote Git baseline; diagnose transport or authentication before another attempt');
     }
@@ -41,11 +42,13 @@ export async function createProbe(cwd: string, sha: string, signal: AbortSignal)
   const resources = join(root, 'resources');
   await mkdir(resources);
   try { await git(cwd, ['worktree', 'add', '--detach', workspace, sha], signal); }
-  catch {
+  catch (error) {
+    if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
     // git may have registered a partial worktree. Preserve it, never force a cleanup guess.
     throw new PreflightError('WORKSPACE_UNRESOLVED', 'Probe worktree creation failed; preserve the flow-probe directory and inspect git worktree list');
   }
   const check = async () => {
+    if ((await git(workspace, ['rev-parse', 'HEAD'])).trim() !== sha) throw new PreflightError('PROBE_VERSION_CHANGED', 'Probe HEAD differs from the approved SHA; preserve the worktree; no publication or startup');
     if ((await git(workspace, ['status', '--porcelain'])).trim()) throw new PreflightError('PROBE_CHANGED_CODE', 'Project probes changed code; preserve the detached worktree and inspect it');
   };
   return {

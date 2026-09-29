@@ -42,14 +42,18 @@ export async function probeProject(
   if (failure instanceof PreflightError && failure.code === 'PROCESS_UNQUIESCED') throw failure;
   await workspace.check();
   try { await execute('cleanup', false); }
-  catch { throw new PreflightError('CLEANUP_FAILED', 'Project cleanup failed; preserve probe workspace and stop; no publication or startup'); }
+  catch (error) {
+    if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
+    throw new PreflightError('CLEANUP_FAILED', 'Project cleanup failed; preserve probe workspace and stop; no publication or startup');
+  }
   if (failure) {
     await workspace.remove();
     throw failure;
   }
   signal.throwIfAborted();
   const report = {
-    schema: 1, codeSha: sha, scopeDigest, contractDigest: digest(contract),
+    schema: 2, generator: 'pi-implement-flow/probe-v2-head-checked',
+    codeSha: sha, scopeDigest, contractDigest: digest(contract),
     source: '.pi/flow.json', commands: ['prepare', 'check', 'accept', 'cleanup'],
     node: process.version, commandTimeoutMs: contract.commandTimeoutMs,
     acceptance, cleanup: 'passed', retentionDays: contract.artifacts.retentionDays,
@@ -59,7 +63,10 @@ export async function probeProject(
   await writeFile(reportPath, content, { mode: 0o600 });
   let publication: { url?: unknown; sha256?: unknown; retentionDays?: unknown };
   try { publication = JSON.parse(await execute('publish')); }
-  catch { throw new PreflightError('PUBLISH_UNRESOLVED', 'Publisher failed or result is unknown; preserve the probe report and reconcile remote artifacts before retrying'); }
+  catch (error) {
+    if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
+    throw new PreflightError('PUBLISH_UNRESOLVED', 'Publisher failed or result is unknown; preserve the probe report and reconcile remote artifacts before retrying');
+  }
   const pattern = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/releases\/download\/([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)$/;
   const link = typeof publication.url === 'string' ? pattern.exec(publication.url) : null;
   if (!link || link[1]?.toLowerCase() !== repository.toLowerCase() || publication.sha256 !== hash

@@ -67,9 +67,12 @@ All commands run in a detached worktree of the confirmed SHA. Environment:
 
 Order: prepare → check → accept → cleanup → publish. Cleanup runs after failed
 preparation/check/acceptance too, unless process quiescence or code preservation
-cannot be established. Code must remain unchanged after each command. Dirty or
+cannot be established. Both HEAD SHA and worktree contents must remain unchanged after each command
+and before removal; a clean commit/checkout is still version drift. Dirty or
 unresolved workspaces are preserved; no force removal. Probe-only directories are
-removed only after safe project cleanup. Publisher failures preserve the report.
+removed only after safe project cleanup. Publisher failures preserve the report. An unverified process-stop classification
+is preserved across cleanup/publish/Git error boundaries and retains controller
+ownership; it cannot become an ordinary publisher/cleanup failure.
 
 `accept` must exit zero and emit only JSON:
 
@@ -81,7 +84,8 @@ Assertion names are nonempty lowercase `[a-z0-9._-]`, at most 80 characters.
 Assertions must be nonempty and all passed. A text success claim is insufficient.
 Project command correctness itself remains subject to independent code review.
 
-The orchestrator writes a sanitized report binding code SHA, approved scope and
+The orchestrator writes a sanitized protocol-v2 report (generator
+`pi-implement-flow/probe-v2-head-checked`) binding code SHA, approved scope and
 contract digests, runtime, command phases, assertions, cleanup result and retention.
 `publish` reads `FLOW_REPORT`, preserves its exact bytes, and emits:
 

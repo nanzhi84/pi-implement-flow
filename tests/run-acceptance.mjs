@@ -21,7 +21,7 @@ let piVersion = 'unavailable';
 try {
   piVersion = execFileSync(process.env.PI_BIN ?? 'pi', ['--version'], { encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 } catch { /* Missing pi is reported without embedding its configured path. */ }
-const expectedScenarios = remote ? 20 : 2;
+const expectedScenarios = remote ? 23 : 2;
 const passed = result.exitCode === 0 && scenarios.length === expectedScenarios;
 await writeFile('artifacts/preflight.json', JSON.stringify({
   schema: 1, sha, dirty,
@@ -31,7 +31,7 @@ await writeFile('artifacts/preflight.json', JSON.stringify({
   boundary: 'Real pi RPC, temporary Git repositories; real pi RPC and SDK role readiness; no model prompts; startup probes publish real synthetic evidence',
   prerequisites: remote ? 'Read access to public acceptance repository; planning fixtures through Spec #22; required-review ruleset for flow/spec-22; prepared greeting project at remote main; selected pi model credentials for startup tests' : 'Node 24+, Git, pi 0.87.1',
   expectedScenarios, allSelectedScenariosPassed: passed, testRunner: result,
-  skippedScenarios: remote ? [] : ['readable-rules-still-fail-closed', 'missing-acceptance-agreement', 'cyclic-dependencies', 'dependency-outside-spec', 'native-dependency-plan', 'qualified-reference-refused', 'invalid-zero-reference-refused', 'ambiguous-none-refused', 'fenced-planning-refused', 'unicode-fence-suffix-refused', 'native-review-required', 'confirmed-startup', 'agent-readiness-refused', 'preparation-failure', 'confirmation-race', 'session-fork', 'session-tree', 'session-reload'],
+  skippedScenarios: remote ? [] : ['readable-rules-still-fail-closed', 'missing-acceptance-agreement', 'cyclic-dependencies', 'dependency-outside-spec', 'native-dependency-plan', 'qualified-reference-refused', 'invalid-zero-reference-refused', 'ambiguous-none-refused', 'fenced-planning-refused', 'unicode-fence-suffix-refused', 'native-review-required', 'confirmed-startup', 'agent-readiness-refused', 'preparation-failure', 'confirmation-race', 'session-fork', 'session-tree', 'session-reload', 'probe-head-change', 'unquiesced-cleanup', 'unquiesced-publish'],
   // These are assertion results, NOT whole-test success; testRunner includes cleanup.
   assertionResults: scenarios,
 }, null, 2) + '\n');

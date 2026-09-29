@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { openPi } from './pi-client.mjs';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 
 const results = [];
 const model = { provider: process.env.PI_PROVIDER ?? 'openai-codex', id: process.env.PI_MODEL ?? 'gpt-6-astra' };
@@ -114,6 +115,53 @@ for (const action of ['fork', 'tree', 'reload']) {
     assert.doesNotMatch(pi.notices.join('\n'), /FLOW_STARTED|REVIEW_READY/);
     assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: f.project, encoding: 'utf8' }), '');
     results.push({ scenario: `session-${action}`, result: 'passed', assertions: ['real pi lifecycle operation', 'late approval rejected', 'no dispatch', 'Git unchanged'] });
+  });
+}
+
+test('a clean probe HEAD change cannot publish evidence for the approved SHA', { skip }, async t => {
+  const f = await fixture(t, true, { FLOW_FIXTURE_CHANGE_HEAD: '1' });
+  const pi = await f.open();
+  const output = await pi.flow('start 1', true);
+  assert.match(output, /PROBE_VERSION_CHANGED/);
+  assert.doesNotMatch(output, /FLOW_STARTED|EVIDENCE_URL/);
+  const worktrees = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: f.project, encoding: 'utf8' });
+  assert.equal((worktrees.match(/^worktree /gm) ?? []).length, 2, 'changed probe workspace must be preserved');
+  results.push({ scenario: 'probe-head-change', result: 'passed', assertions: ['clean HEAD drift refused', 'no old-SHA evidence', 'changed workspace preserved'] });
+});
+
+for (const phase of ['cleanup', 'publish']) {
+  test(`unverified ${phase} process quiescence retains controller ownership`, { skip }, async t => {
+    // Explicit documented OS-lock cleanup after this test's real children exited.
+    // The assertion is the competing user's refusal, not an internal lock layout.
+    const id = execFileSync('gh', ['api', 'repos/nanzhi84/pi-implement-flow-acceptance', '--jq', '.id'], { encoding: 'utf8' }).trim();
+    const key = createHash('sha256').update(`github.com:${id}`).digest('hex').slice(0, 24);
+    const socket = `/tmp/pi-flow-${process.getuid()}-${key}.sock`;
+    let exists = true;
+    try { await access(socket); } catch { exists = false; }
+    assert.equal(exists, false, 'Never steal a pre-existing controller or stale socket');
+    const f = await fixture(t);
+    const other = await fixture(t);
+    t.after(async () => {
+      // fixture hooks first close both pi processes, including the fault bridge.
+      try { await access(socket); } catch { return; }
+      let noOwner = false;
+      try { execFileSync('lsof', ['-t', socket], { stdio: 'pipe' }); }
+      catch (error) { noOwner = error.status === 1; }
+      assert.equal(noOwner, true, 'Do not unlink any live controller socket');
+      await rm(socket); // Known test-owned stale socket; actual command-close was observed.
+    });
+    const pi = await f.open({ extensions: [fileURLToPath(new URL('./fixtures/process-fault-bridge.mjs', import.meta.url))] });
+    assert.equal((await pi.request('prompt', { message: `/fixture-process-fault ${phase}` })).success, true);
+    const output = await pi.flow('start 1', true);
+    assert.match(output, new RegExp(`FAULT_CHILD_CLOSED: ${phase}`));
+    assert.match(output, /PROCESS_UNQUIESCED/);
+    assert.doesNotMatch(output, /FLOW_STARTED|EVIDENCE_URL/);
+    assert.match(await pi.flow('status'), /paused/);
+    const competitor = await other.open();
+    assert.match(await competitor.flow('start 1', false), /FLOW_OWNED/);
+    const worktrees = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: f.project, encoding: 'utf8' });
+    assert.equal((worktrees.match(/^worktree /gm) ?? []).length, 2);
+    results.push({ scenario: `unquiesced-${phase}`, result: 'passed', boundary: 'real pi and commands; injected process.kill liveness observation only', assertions: ['unknown quiescence preserved', 'competing clone refused', 'probe workspace retained'] });
   });
 }
 
