@@ -39,16 +39,21 @@ function issue(value: unknown): Issue {
 }
 
 export class GitHub {
-  private constructor(readonly repository: string, private readonly cwd: string) {}
+  private constructor(readonly repository: string, private readonly cwd: string, readonly identity: string = repository) {}
   static async fromOrigin(cwd: string): Promise<GitHub> {
     const origin = (await command(cwd, 'git', ['remote', 'get-url', 'origin'])).trim();
     const match = /^(?:https:\/\/github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/.exec(origin);
     if (!match?.[1]) throw new PreflightError('REMOTE_UNSUPPORTED', 'origin must be a credential-free github.com repository URL');
-    return new GitHub(match[1], cwd);
+    const candidate = new GitHub(match[1], cwd);
+    const canonical = record(await candidate.get(''));
+    if (!Number.isSafeInteger(canonical.id) || typeof canonical.full_name !== 'string' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(canonical.full_name)) {
+      throw new PreflightError('REMOTE_INVALID', 'Cannot establish canonical GitHub repository identity');
+    }
+    return new GitHub(canonical.full_name, cwd, `github.com:${canonical.id}`);
   }
   private async get(path: string, paginated = false): Promise<unknown> {
     const output = await command(this.cwd, 'gh', ['api', '--hostname', 'github.com', '--method', 'GET',
-      ...(paginated ? ['--paginate', '--slurp'] : []), `repos/${this.repository}/${path}`]);
+      ...(paginated ? ['--paginate', '--slurp'] : []), `repos/${this.repository}${path ? `/${path}` : ''}`]);
     try { return JSON.parse(output); }
     catch { throw new PreflightError('REMOTE_INVALID', 'GitHub response is not JSON'); }
   }
@@ -64,15 +69,31 @@ export class GitHub {
   async blockers(number: number): Promise<Issue[]> { return (await this.list(`issues/${number}/dependencies/blocked_by`)).map(issue); }
 
   async inspectProtection(featureBranch: string): Promise<void> {
-    try {
-      // Rule visibility is mandatory. A 403/404 is not proof of no applicable rules.
-      await this.list(`rules/branches/${encodeURIComponent(featureBranch)}`);
-    } catch {
-      throw new PreflightError('PROTECTION_UNVERIFIABLE',
-        'Cannot read active GitHub branch rules. Check repository plan and rule-read permission; never treat inaccessible rules as absent');
+    const repository = record(await this.get(''));
+    const permissions = record(repository.permissions);
+    if (permissions.push !== true || repository.has_issues !== true || repository.default_branch !== 'main') {
+      throw new PreflightError('PERMISSION_UNAVAILABLE', 'Need a main-based repository with Issues enabled and effective push permission; do not use admin bypass');
     }
-    // Classic protection, identities, environment probes and start remain intentionally blocked.
-    throw new PreflightError('PREFLIGHT_INCOMPLETE',
-      'Rules are readable, but classic protection, reviewer readiness, environment probes and safe start are not implemented yet');
+    let rules: unknown[];
+    let classicCount: unknown;
+    try {
+      // A 403/404 is not proof of no policy. Classic wildcard rules may apply to
+      // branches that do not exist yet; this slice conservatively rejects them.
+      rules = await this.list(`rules/branches/${encodeURIComponent(featureBranch)}`);
+      const [owner, name] = this.repository.split('/');
+      const response = JSON.parse(await command(this.cwd, 'gh', ['api', '--hostname', 'github.com', 'graphql',
+        '-f', 'query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){branchProtectionRules(first:1){totalCount}}}',
+        '-f', `owner=${owner}`, '-f', `name=${name}`]));
+      classicCount = record(record(record(record(response).data).repository).branchProtectionRules).totalCount;
+      if (!Number.isSafeInteger(classicCount) || (classicCount as number) < 0) throw new Error('Invalid classic policy response');
+    } catch {
+      throw new PreflightError('PROTECTION_UNVERIFIABLE', 'Cannot inspect rulesets and classic branch protection; check repository plan and rule-read permissions');
+    }
+    if (rules.some(rule => record(rule).type === 'pull_request')) {
+      throw new PreflightError('NATIVE_REVIEW_UNAVAILABLE', 'Feature-branch pull-request policy needs verified native review/check capabilities; same-author internal review cannot approve on GitHub; this policy is not supported yet');
+    }
+    if (rules.length || classicCount !== 0) {
+      throw new PreflightError('PROTECTION_UNSUPPORTED', 'Active rules or classic wildcard protection need explicit supported policy evaluation; refuse rather than assume no requirements or use admin bypass');
+    }
   }
 }

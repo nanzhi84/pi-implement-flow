@@ -41,7 +41,7 @@ test('real pi rejects malformed execution contracts before any confirmation', as
 });
 
 const planningScenarios = [
-  { name: 'readable-rules-still-fail-closed', spec: 1, expected: /PREFLIGHT_INCOMPLETE/, plan: /PLAN_READ: Spec #1; Tickets #2; concurrency 2/ },
+  { name: 'readable-rules-still-fail-closed', spec: 1, expected: /PROJECT_UNPREPARED/, plan: /PLAN_READ: Spec #1; Tickets #2; concurrency 2/ },
   { name: 'missing-acceptance-agreement', spec: 3, expected: /PLAN_INCOMPLETE.*#3.*acceptance/ },
   { name: 'cyclic-dependencies', spec: 4, expected: /DEPENDENCY_CYCLE.*#5 -> #6 -> #5/ },
   { name: 'dependency-outside-spec', spec: 7, expected: /DEPENDENCY_INVALID.*#8.*#2/ },
@@ -51,6 +51,7 @@ const planningScenarios = [
   { name: 'ambiguous-none-refused', spec: 18, expected: /DEPENDENCY_INVALID.*#19/ },
   { name: 'fenced-planning-refused', spec: 20, expected: /PLAN_INCOMPLETE.*#20.*acceptance/ },
   { name: 'unicode-fence-suffix-refused', spec: 21, expected: /PLAN_INCOMPLETE.*#21.*acceptance/ },
+  { name: 'native-review-required', spec: 22, expected: /NATIVE_REVIEW_UNAVAILABLE/, plan: /PLAN_READ: Spec #22; Tickets #23; concurrency 2/ },
 ];
 for (const scenario of planningScenarios) {
  test(`real pi and GitHub: ${scenario.name}`, { skip: process.env.RUN_GITHUB_E2E !== '1' }, async t => {

@@ -76,6 +76,8 @@ export async function readContract(cwd: string): Promise<Contract> {
     validated[name] = strings(commands[name], `commands.${name}`);
     if (!validated[name].length) invalid(`commands.${name}`);
   }
+  const commandTimeoutMs = integer(root.commandTimeoutMs, 1, 'commandTimeoutMs');
+  if (commandTimeoutMs > 2_147_483_647) invalid('commandTimeoutMs (exceeds platform timer range)');
   const resources = object(root.resources, ['mode', 'description'], 'resources');
   if (resources.mode !== 'isolated' && resources.mode !== 'exclusive') invalid('resources.mode');
   const artifacts = object(root.artifacts, ['destination', 'retentionDays'], 'artifacts');
@@ -95,7 +97,7 @@ export async function readContract(cwd: string): Promise<Contract> {
   }
   return {
     version: 1, commands: validated,
-    commandTimeoutMs: integer(root.commandTimeoutMs, 1, 'commandTimeoutMs'),
+    commandTimeoutMs,
     resources: { mode: resources.mode, description: text(resources.description, 'resources.description') },
     artifacts: { destination: text(artifacts.destination, 'artifacts.destination'), retentionDays: integer(artifacts.retentionDays, 1, 'artifacts.retentionDays') },
     agents: { implementation, review: { ...review, isolation: 'independent-context' }, retry: {

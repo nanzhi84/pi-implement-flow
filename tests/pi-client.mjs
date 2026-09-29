@@ -1,14 +1,15 @@
 import { spawn } from 'node:child_process';
-import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
 // Real pi protocol, not an emulation of ExtensionAPI. No prompt reaches a model.
-export async function openPi(cwd, agentDir) {
+export async function openPi(cwd, agentDir, options = {}) {
   const child = spawn(process.env.PI_BIN ?? 'pi', [
     '--mode', 'rpc', '--no-session', '--no-extensions', '--no-skills',
     '--no-prompt-templates', '--no-context-files', '--no-themes', '--no-tools',
     '--no-approve', '--offline', '-e', fileURLToPath(new URL('../src/extension.ts', import.meta.url)),
-  ], { cwd, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir }, stdio: ['pipe', 'pipe', 'pipe'] });
+    ...(options.model ? ['--provider', options.model.provider, '--model', options.model.id] : []),
+    ...(options.extensions ?? []).flatMap(path => ['-e', path]),
+  ], { cwd, env: { ...process.env, ...options.env, PI_CODING_AGENT_DIR: agentDir }, stdio: ['pipe', 'pipe', 'pipe'] });
   const pending = new Map();
   const notices = [];
   let serial = 0;
@@ -27,7 +28,7 @@ export async function openPi(cwd, agentDir) {
   child.stdin.on('error', () => failPending('pi input stream failed'));
   // Deliberately do not capture stderr: third-party diagnostics may contain private paths.
   child.stderr.resume();
-  createInterface({ input: child.stdout }).on('line', line => {
+  function lineReceived(line) {
     let event;
     try { event = JSON.parse(line); } catch { return; }
     if (event.type === 'response') {
@@ -41,8 +42,21 @@ export async function openPi(cwd, agentDir) {
     if (event.type === 'extension_ui_request') {
       if (event.method === 'notify') notices.push(event.message);
       if (event.method === 'confirm') {
-        child.stdin.write(JSON.stringify({ type: 'extension_ui_response', id: event.id, confirmed: confirm }) + '\n');
+        Promise.resolve(options.onConfirm ? options.onConfirm(event) : confirm).then(confirmed => {
+          child.stdin.write(JSON.stringify({ type: 'extension_ui_response', id: event.id, confirmed }) + '\n');
+        }).catch(() => failPending('Acceptance client could not answer confirmation'));
       }
+    }
+  }
+  let buffer = '';
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', chunk => {
+    buffer += chunk;
+    let end;
+    while ((end = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, end).replace(/\r$/, '');
+      buffer = buffer.slice(end + 1);
+      lineReceived(line);
     }
   });
   function request(type, fields = {}) {
@@ -52,7 +66,7 @@ export async function openPi(cwd, agentDir) {
       const timeout = setTimeout(() => {
         pending.delete(id);
         reject(new Error(`pi ${type} timeout`));
-      }, 60_000);
+      }, options.timeoutMs ?? 120_000);
       pending.set(id, { resolve, reject, timeout });
       child.stdin.write(JSON.stringify({ id, type, ...fields }) + '\n');
     });
@@ -70,7 +84,7 @@ export async function openPi(cwd, agentDir) {
     async close() {
       if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
       const exited = new Promise(resolve => child.once('exit', resolve));
-      child.kill('SIGTERM');
+      child.stdin.end();
       const kill = setTimeout(() => child.kill('SIGKILL'), 2000);
       await exited;
       clearTimeout(kill);
