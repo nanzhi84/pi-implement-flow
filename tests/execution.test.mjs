@@ -14,6 +14,7 @@ test('real selected model delivers a business change in an unmerged Ticket PR', 
   let confirmation;
   const pi = await f.open({ onConfirm: event => { confirmation = event.message; return true; } });
   const output = await pi.flow(`start ${f.spec.number}`, true);
+  assert.equal(typeof confirmation, 'string', output);
   assert.match(confirmation, /whitespace/);
   assert.match(output, new RegExp(`AGENT_STARTED: Ticket #${f.ticket.number}`));
   assert.match(output, /TICKET_PR: https:\/\/github\.com\//);
@@ -110,7 +111,8 @@ test('an implemented response with no changes never creates an empty commit or P
   assert.ok(tools.every(name => !['exec', 'shell', 'git', 'gh'].includes(name)), 'implementation context has no general execution/Git/GitHub tool');
   const commandTool = fixed.requests[0].tools.find(tool => tool.function.name === 'bash');
   if (commandTool) assert.match(commandTool.function.description, /Only approved|approved project command/);
-  const request = fixed.requests[0].messages.map(message => typeof message.content === 'string' ? message.content : JSON.stringify(message.content)).join('\n');
+  const request = fixed.requests[0].messages.map(message => typeof message.content === 'string'
+    ? message.content : (message.content ?? []).map(part => part.text ?? '').join('\n')).join('\n');
   assert.ok(request.includes(JSON.stringify(f.ticket.body)));
   assert.ok(request.includes(JSON.stringify(f.spec.body)));
   assert.ok(request.includes('Do not change the execution contract'), 'explicit project instructions reach implementation context');
