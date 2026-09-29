@@ -2,10 +2,13 @@
 
 `/flow start <issue-number> [--concurrency N]` defaults to concurrency 2. It validates
 and confirms the exact plan, verifies probes and independent-role readiness, then
-executes one independent open Ticket in the T2 slice. The result is a Draft Ticket
-PR into `flow/spec-N`, with the Ticket still open and flow paused at
-`gates-not-installed`. `/flow preflight` runs only preflight/probes and stays at
-`preflight-only`; neither result is completed delivery.
+executes one independent open Ticket. T3 gates the exact merge candidate through
+checks, behavioral acceptance, a fresh independent read-only review and verified
+remote evidence before merging its Ticket PR into `flow/spec-N`. A distinct actual
+merge SHA gets a full new gate. Only verified actual delivery closes the Ticket;
+the Spec remains open and the total PR stays Draft. It pauses at
+`scheduler-not-installed`. `/flow preflight` runs only preflight/probes and stays at
+`preflight-only`; neither result is completed Spec delivery.
 
 ## Preconditions and trust
 
@@ -81,7 +84,7 @@ must preserve source/branch/base before dispatch, and cleanup must preserve the
 Agent's source changes. `FLOW_CODE_SHA` here is the recorded starting baseline;
 uncommitted edits are not yet a tested commit. These optional Agent checks are not
 gate evidence, and no `FLOW_REPORT` is produced for them. The controller later
-commits the actual result; T3 will run mandatory gates against committed versions.
+commits the actual result; T3 runs mandatory gates against committed C/M versions.
 
 `accept` must exit zero and emit only JSON:
 
