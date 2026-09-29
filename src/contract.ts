@@ -1,8 +1,9 @@
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, join, relative } from 'node:path';
+import type { FailureDetail } from './failure.ts';
 
 export class PreflightError extends Error {
-  constructor(readonly code: string, message: string) { super(message); }
+  constructor(readonly code: string, message: string, readonly detail?: FailureDetail) { super(message); }
 }
 
 type CommandName = 'prepare' | 'cleanup' | 'check' | 'accept' | 'publish';
