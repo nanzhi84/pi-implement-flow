@@ -107,8 +107,7 @@ export async function graphFixture(t, scenario) {
       assert.equal(push.ticket, tickets.A.number);
       const remote = api(`repos/${repository}/git/ref/heads/${push.branch}`); assert.equal(remote.object.sha, push.sha);
       assert.equal(git(f.project, 'rev-parse', `refs/heads/${push.branch}`), push.sha);
-      const branches = api(`repos/${repository}/branches?per_page=100`);
-      assert.ok(!branches.some(item => item.name === `flow/ticket-${f.spec.number}-${tickets.B.number}`));
+      assert.equal(git(f.project, 'ls-remote', '--heads', 'origin', `refs/heads/flow/ticket-${f.spec.number}-${tickets.B.number}`), '', 'exact B ref is absent; no paginated-list inference');
       assert.equal(apiResult.branchHead(), f.baseline); assert.equal(f.pulls().length, 0);
       for (const ticket of Object.values(tickets)) assert.equal(api(`repos/${repository}/issues/${ticket.number}`).state, 'open');
       assert.equal(api(`repos/${repository}/pulls?state=all&head=${encodeURIComponent(`nanzhi84:${f.feature}`)}&base=main`).length, 0);
