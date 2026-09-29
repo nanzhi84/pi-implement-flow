@@ -13,6 +13,7 @@
 - check/accept 的普通 exit 1：无法证明是代码缺陷，停止而不生成行为失败或修复 Ticket。
 - check/accept 显式行为失败：仅接受退出码 1、完整严格 UTF-8 JSON、正确 SHA、唯一且完整的有界断言集合；至少一项 false。报告摘要绑定原始字节，不充当修复进展或执行账本。
 - 显式 environment/configuration 报告：是执行问题，不是行为缺陷。
+- 所有已有可信项目阶段须保留 phase operation 和安全 detail；preflight/Ticket cleanup 的包装不能抹掉底层原因。现有真实 T1 preparation failure 和 cleanup/publish quiescence 场景增加 phase/detail 断言，不扩大行为失败或修复授权。
 - 错 SHA、额外字段、重复/空/全通过断言、混日志、非法 UTF-8、超限或退出码与报告矛盾：不能取得修复资格或绕过 gate。
 - 正常退出前输出了合法失败 JSON，但后来超时/取消/信号结束/进程未停止：生命周期错误优先。无法确认 quiescence 时保留 ownership 与工作空间。
 - 既有 exit 0 check 文本、accept 成功协议、原始 Buffer 资产校验必须保持；新失败协议是 opt-in。
