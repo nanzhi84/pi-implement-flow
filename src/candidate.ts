@@ -41,16 +41,18 @@ export async function reviewedCandidate(input: ExecutionInput, initial: RepairSu
     expectedPull(before, input, submission);
     if (before.merged || before.state !== 'open' || before.base.sha !== B) throw new PreflightError('CANDIDATE_UNAVAILABLE', 'Repair candidate must remain an open PR at the accepted base');
     const H = before.head.sha;
+    let versions: Versions | undefined;
+    if (before.merge_commit_sha) {
+      const C = before.merge_commit_sha;
+      await git(cwd, ['fetch', '--no-write-fetch-head', 'origin', C], signal);
+      if (JSON.stringify(await commitParents(cwd, C)) === JSON.stringify([B, H])) versions = { H, B, C };
+    }
     let defect: CandidateDefect;
-    if (!before.merge_commit_sha) {
+    if (!versions) {
       const preparation = await canonicalMerge(cwd, H, B, signal);
       if (!preparation.conflicts.length) throw new PreflightError('CANDIDATE_UNAVAILABLE', 'GitHub has not provided the actual merge candidate; no guessed commit may authorize a gate');
       defect = await publishConflict(input, submission, preparation);
     } else {
-      const C = before.merge_commit_sha;
-      await git(cwd, ['fetch', '--no-write-fetch-head', 'origin', C], signal);
-      if (JSON.stringify(await commitParents(cwd, C)) !== JSON.stringify([B, H])) throw new PreflightError('EVIDENCE_STALE', 'GitHub candidate has different ordered parents');
-      const versions: Versions = { H, B, C };
       try {
         const candidate = await ticketGate(input, submission.ticket, versions, 'candidate', submission.implementationEvidence, { previousBlockers, previousAssertions });
         return { submission, before, versions, candidate, previousBlockers };

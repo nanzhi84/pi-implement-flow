@@ -12,6 +12,7 @@
 | 无差异或无关代码噪声 | 不空提交；新 tree、SHA、URL、模型“已改善”不算进展；相同失败没有已验证解决时保留成果并暂停 |
 | 断言消失、旧通过退化、review 缺陷被重新措辞 | 不算进展；完整断言 IDs 与稳定旧 blocker 引用仍须逐项核对，不降低门禁 |
 | 最新已接受 B 与 H 有文本冲突 | 控制器准备可独立重算的 merge tree/stages；Agent 仅解决获准代码，完成 [H,B] 提交且追加到同一 open PR |
+| GitHub 在新 B/H 上暂未提供 C，或仍返回旧 parents 的 C | 不能使用旧 C 作为门禁；只在当前精确 H/B 可重算出真实文本冲突时发布 conflict 证据并修复，无冲突时保持 candidate unavailable |
 | 无文本冲突但组合语义错误 | 最新 C 的真实 CLI 揭示失败，同票修复后再次完整验证；不凭旧起点通过放行 |
 | 冲突需要新业务选择 | 修改前提出具体问题，保留原 PR/源码/失败依据，相关 Ticket blocked，不擅自选 ours/theirs |
 | 旧 H 到新 H 的证据链 | 单 parent Agent 编辑与 controller merge 分段；每段完整路径/原始 blob/mode 覆盖，不把上游变化伪写成工具事件 |
@@ -24,7 +25,7 @@
 2. `progressive-five`：固定真实 SDK 工具初始留下五个真实 CLI 缺陷，每次只解决一个，批准的完整断言集始终保留。至少五次修复后交付；检查同一 PR、每轮实际版本及下载工件、失败集合的真实变化。
 3. `no-progress-no-diff`：固定修复重放原文件，保留失败工件后 no-progress；没有空提交、第二 PR 或继续派工。
 4. `no-progress-noise`：修复只加无关注释，新 tree 仍产生同一失败集，独立 review 不认可解决；停止且保留真实新提交，不用代码噪声延长循环。
-5. `conflict-repair`：同 Spec 的 A/B 真实修改同文件，A 先交付；B 在最新 B 上经历文本冲突和随后可执行的组合语义失败，在同一个 B PR 追加修复，最终通过。独立重算准备 tree、conflict stages、所有编辑段与实际 C/M，不调用产品 verifier 证明自己。
+5. `conflict-repair`：同 Spec 的 A/B 从同一旧基线真实修改同文件。B 的初始固定模型仅在观察到 A 的真实 `TICKET_PR` 及远端 readback 后返回写入，使 A 先进入 FIFO 集成；不靠 sleep，不等待会争用 B 所持资源的 A gate/Delivery。若屏障未到达，场景失败而非继续猜测。A 先交付后，B 在最新 B 上经历文本冲突和随后可执行的组合语义失败，在同一个 B PR 追加修复，最终通过。独立重算准备 tree、conflict stages、所有编辑段与实际 C/M，不调用产品 verifier 证明自己。
 6. `repair-needs-decision`：已有 PR 和失败证据后，修复角色明确返回 unresolved requirement 问题且不编辑；Ticket open、原 PR/head 保留，问题链接可读。
 
 固定 HTTP 响应仅控制缺陷/每次写入，真实 SDK 工具、项目命令、GitHub PR/merge/评论/Issues 与证据下载均真实执行。测试不得根据“第 N 轮”伪造 passed；断言结果必须来自实际 CLI。失败未到目标边界不能计通过。各场景最终 Node exit/信号、源码初末 SHA/dirty/fingerprint、host/local SDK、实际模型、仓库基线、外部断言与工件链接均写脱敏报告。

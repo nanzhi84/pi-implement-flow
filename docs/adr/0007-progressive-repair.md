@@ -1,4 +1,4 @@
-# 0005: Repair only published candidate defects, with continuous code provenance
+# 0007: Repair only published candidate defects, with continuous code provenance
 
 Status: implemented for review; acceptance is recorded separately. Applies to Issue #6.
 

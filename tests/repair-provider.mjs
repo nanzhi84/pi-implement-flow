@@ -67,12 +67,22 @@ function reviewedApp(files, count) {
 const call = (path, content) => ({ name: 'write', arguments: { path, content } });
 export async function repairProvider(t, scenario) {
   let files; let initialCalls; let failure;
+  let upstream; let releaseUpstream;
+  const barrier = { targetObserved: false, upstreamPr: undefined };
+  const upstreamSubmitted = new Promise(resolve => { releaseUpstream = resolve; });
   let repairs = 0;
   const requests = []; const reviews = [];
   const server = createServer(async (req, res) => {
     try {
       let body = ''; for await (const chunk of req) body += chunk;
       assert.ok(body.length < 4_000_000);
+      if (req.url === '/_fixture/upstream-submitted') {
+        const fact = JSON.parse(body);
+        assert.equal(scenario, 'conflict-repair'); assert.equal(fact.ticket, upstream);
+        assert.match(fact.head, /^[a-f0-9]{40}$/); assert.ok(Number.isSafeInteger(fact.pr) && fact.pr > 0);
+        assert.equal(barrier.upstreamPr, undefined); barrier.upstreamPr = fact;
+        releaseUpstream(); res.writeHead(204); res.end(); return;
+      }
       const input = JSON.parse(body); const context = contextOf(input);
       const role = (input.tools ?? []).some(item => item.function?.name === 'write') ? 'implementation' : 'review';
       const prior = input.messages.filter(item => item.role === 'tool');
@@ -86,6 +96,13 @@ export async function repairProvider(t, scenario) {
           else if (repair && scenario === 'no-progress-no-diff') answer = { kind: 'implemented', summary: 'No effective change was made.' };
           else if (scenario === 'conflict-repair') {
             const upstream = context.ticket.issue.body.includes('UPSTREAM_RESERVED');
+            if (!repair && !upstream) {
+              barrier.targetObserved = true;
+              let timer;
+              try { await Promise.race([upstreamSubmitted, new Promise((_resolve, reject) => {
+                timer = setTimeout(() => reject(new Error('Actual upstream PR notification did not arrive')), 120_000);
+              })]); } finally { clearTimeout(timer); }
+            }
             calls = !repair ? upstream ? [call('fixture.mjs', addReservedCheck(files.fixture)), call('app.mjs', reservedApp(files.original))]
               : [call('fixture.mjs', files.acceptance), call('app.mjs', files.original.replace('if (!name ||', 'if (!name || false ||'))]
               : context.failure.kind === 'text-conflict'
@@ -131,8 +148,9 @@ export async function repairProvider(t, scenario) {
   t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
   const provider = { api: 'openai-completions', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 'synthetic-local-only',
     models: [{ id: 'fixed', reasoning: false, contextWindow: 64000, maxTokens: 16384 }] };
-  return { requests, reviews, provider, model: { provider: 'flow-repair-fixture', id: 'fixed' }, config: { providers: { 'flow-repair-fixture': provider } },
-    async configure(project) { files = await repairFiles(project); initialCalls = [{ name: 'write', arguments: { path: 'fixture.mjs', content: files.acceptance } }]; },
+  return { requests, reviews, provider, barrier, barrierUrl: `http://127.0.0.1:${server.address().port}/_fixture/upstream-submitted`,
+    model: { provider: 'flow-repair-fixture', id: 'fixed' }, config: { providers: { 'flow-repair-fixture': provider } },
+    async configure(project, upstreamTicket) { upstream = upstreamTicket; files = await repairFiles(project); initialCalls = [{ name: 'write', arguments: { path: 'fixture.mjs', content: files.acceptance } }]; },
     assertHealthy() { if (failure) throw failure; },
   };
 }

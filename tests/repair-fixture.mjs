@@ -91,7 +91,7 @@ export async function repairFixture(t, scenario) {
     created.push({ scenario, kind: 'ticket', number: target.number, url: target.html_url }); await persist();
     api(`repos/${repository}/issues/${f.spec.number}/sub_issues`, { sub_issue_id: target.id });
   }
-  await fixed.configure(f.project);
+  await fixed.configure(f.project, upstream?.number);
   const contract = JSON.parse(await readFile(join(f.project, '.pi/flow.json'), 'utf8'));
   let approved;
   const extensions = [fileURLToPath(new URL('./fixtures/repair-observer.mjs', import.meta.url)),
@@ -99,13 +99,20 @@ export async function repairFixture(t, scenario) {
   const pi = await f.open({ timeoutMs: 2_400_000, extensions, onConfirm: event => {
     const start = event.message.indexOf('\n{'); assert.ok(start >= 0); approved = JSON.parse(event.message.slice(start + 1)); return true;
   } });
-  assert.equal((await pi.request('prompt', { message: `/fixture-repair-observe ${JSON.stringify({ mode: 'observe', repository, spec: f.spec.number, ticket: target.number })}` })).success, true);
+  assert.equal((await pi.request('prompt', { message: `/fixture-repair-observe ${JSON.stringify({ mode: 'observe', repository, spec: f.spec.number, ticket: target.number,
+    ...(upstream ? { upstream: upstream.number, barrierUrl: fixed.barrierUrl } : {}) })}` })).success, true);
   if (real) assert.equal((await pi.request('prompt', { message: `/fixture-repair-model ${JSON.stringify({ repository, provider: fixed.provider })}` })).success, true);
   const wrapped = { ...f, ticket: target, contract, fixed, pi, reportCache: new Map(), get approved() { return approved; },
     async run() {
       const output = await pi.flow(`start ${f.spec.number} --concurrency 2`, true); fixed.assertHealthy();
       await pi.request('prompt', { message: '/fixture-repair-observe-status' });
       const observer = JSON.parse(pi.notices.findLast(item => item.startsWith('REPAIR_OBSERVER: ')).slice('REPAIR_OBSERVER: '.length));
+      assert.deepEqual(observer.barrierErrors, []);
+      if (conflict) {
+        assert.equal(fixed.barrier.targetObserved, true); assert.equal(fixed.barrier.upstreamPr?.ticket, upstream.number);
+        assert.equal(observer.started.length, 2);
+        for (const started of observer.started) assert.equal(started.startedFrom, f.baseline);
+      }
       const ticketPulls = f.pulls().filter(pr => pr.head.ref === `flow/ticket-${f.spec.number}-${target.number}`);
       assert.equal(ticketPulls.length, 1, 'target Ticket owns exactly one remote PR');
       const failures = [...output.matchAll(/GATE_FAILED: candidate ([a-f0-9]{40}) (behavior|review|text-conflict) (https:\/\/github\.com\/\S+) ([a-f0-9]{64})/g)]

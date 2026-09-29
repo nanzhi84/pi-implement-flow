@@ -8,6 +8,7 @@ export default function repairObserver(pi) {
   const original = childProcess.spawn;
   let config; let ui; let notify;
   const heads = new Set(); const gates = []; const mergeRequests = []; const closeRequests = [];
+  const started = []; const barrierErrors = []; const barriers = [];
   let targetPr;
   const run = (command, args) => childProcess.execFileSync(command, args, { cwd: config.cwd,
     encoding: 'utf8', timeout: 120_000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -16,15 +17,24 @@ export default function repairObserver(pi) {
     const value = JSON.parse(source);
     if (value.repository !== repository || repository !== 'nanzhi84/pi-implement-flow-repair-acceptance'
       || ![value.spec, value.ticket].every(item => Number.isSafeInteger(item) && item > 0)) throw new Error('Invalid isolated observer');
+    if (value.upstream !== undefined && (!Number.isSafeInteger(value.upstream) || value.upstream <= 0
+      || !/^http:\/\/127\.0\.0\.1:\d+\/_fixture\/upstream-submitted$/.test(value.barrierUrl))) throw new Error('Invalid isolated upstream barrier');
     config = { ...value, cwd: ctx.cwd };
     if (run('git', ['remote', 'get-url', 'origin']) !== `https://github.com/${repository}.git`) throw new Error('Fixture origin mismatch');
     assertRepositoryIdentity(JSON.parse(run('gh', ['api', `repos/${repository}`])));
     ui = ctx.ui; notify = ui.notify;
     ui.notify = (message, ...args) => {
+      if (String(message).startsWith('TICKET_STARTED: ')) started.push(JSON.parse(String(message).slice('TICKET_STARTED: '.length)));
       const created = /^TICKET_PR: https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/(\d+)/.exec(message);
       if (created) {
         const pr = JSON.parse(run('gh', ['api', `repos/${repository}/pulls/${created[1]}`]));
         if (pr.head.ref === `flow/ticket-${config.spec}-${config.ticket}`) { targetPr = pr.number; heads.add(pr.head.sha); }
+        if (config.upstream && pr.head.ref === `flow/ticket-${config.spec}-${config.upstream}`) {
+          barriers.push(fetch(config.barrierUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ticket: config.upstream, pr: pr.number, head: pr.head.sha }), signal: AbortSignal.timeout(30_000) })
+            .then(result => { if (result.status !== 204) throw new Error('Barrier refused'); })
+            .catch(() => { barrierErrors.push('Upstream PR observation could not reach the isolated model barrier'); }));
+        }
       }
       const repaired = new RegExp(`^TICKET_REPAIRED: #${config.ticket} [a-f0-9]{40} ([a-f0-9]{40})`).exec(message);
       if (repaired) heads.add(repaired[1]);
@@ -47,7 +57,8 @@ export default function repairObserver(pi) {
     syncBuiltinESMExports();
   } });
   pi.registerCommand('fixture-repair-observe-status', { handler: async (_source, ctx) => {
-    ctx.ui.notify(`REPAIR_OBSERVER: ${JSON.stringify({ gates, mergeRequests, closeRequests })}`, 'info');
+    await Promise.all(barriers);
+    ctx.ui.notify(`REPAIR_OBSERVER: ${JSON.stringify({ gates, mergeRequests, closeRequests, started, barrierErrors })}`, 'info');
   } });
   pi.on('session_shutdown', async () => { childProcess.spawn = original; if (ui) ui.notify = notify; syncBuiltinESMExports(); });
 }
