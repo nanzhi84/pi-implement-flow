@@ -2,11 +2,12 @@
 
 A pi extension implementing [Spec #1](https://github.com/nanzhi84/pi-implement-flow/issues/1).
 
-**Current slice: T1 preflight/startup.** It reads and confirms planned Tickets,
-checks environment and role readiness, executes real isolated project probes,
-publishes/verifies evidence, then starts in `paused (executor-not-installed)`.
-T2 and later Tickets provide implementation, gates, scheduling and delivery.
-Preflight success is not a completed Ticket or completed Spec.
+**Current slice: T2 single-Ticket implementation.** `/flow start` confirms the
+planned scope, executes real isolated probes and runs an implementation Agent in
+its own worktree. It commits/pushes the result and creates a Draft Ticket PR into
+the feature branch, then pauses at `gates-not-installed`. The Ticket stays open;
+T3 and later provide gates, integration, parallel scheduling and final delivery.
+`/flow preflight` runs only the original preflight/probe path.
 
 ## Develop and use
 
@@ -19,7 +20,7 @@ npm test
 pi --no-extensions -e ./src/extension.ts
 ```
 
-In pi: `/flow start <issue-number> [--concurrency N]` or `/flow status`.
+In pi: `/flow start <issue-number> [--concurrency N]`, `/flow preflight <issue-number>`, or `/flow status`.
 The target project must already be runnable, clean, at remote main, with a
 committed `.pi/flow.json`; use the [execution contract](docs/execution-contract.md).
 Commands require user confirmation and run with the user's OS permissions, not
@@ -44,7 +45,7 @@ Remote tests use the public synthetic repository
 - Source auth/model files in `FLOW_TEST_AGENT_DIR`, `PI_CODING_AGENT_DIR`, or
   `~/.pi/agent`. Only those explicit files are symlinked into temporary test-agent
   directories; no settings/extensions/skills/instructions are inherited or copied
-  into artifacts. Credential readiness checks may refresh auth, but these T1 tests
+  into artifacts. Credential readiness checks may refresh auth, but these preflight tests
   do not send model prompts.
 - Permission to publish synthetic, content-addressed Release assets. Unknown
   publisher results stop and reconcile exact remote identities; no blind retries.
@@ -114,6 +115,35 @@ negative-test Release is explicitly marked INVALID and retained; protocol-v2
 reports and new clean-SHA suite evidence supersede it, never reuse it for release.
 Preserve remote evidence at least 90 days and while related review remains open.
 Do not publish raw logs, credentials, private paths or production data.
+
+## Ticket execution acceptance
+
+```sh
+RUN_GITHUB_E2E=1 npm run test:execution
+RUN_GITHUB_E2E=1 npm run test:ticket-faults
+```
+
+This creates new synthetic Spec/native Ticket fixtures in the acceptance repository.
+Real model scenarios verify the delivered PR's actual greeting CLI and the no-PR
+ambiguity path. Deterministic loopback-model scenarios verify no-difference and
+cancelled/late-result boundaries through real pi and SDK calls. See
+[scenario contract](docs/testing/t2-scenarios.md) and `artifacts/execution.json` for
+selected coverage, source version, assertions and retained remote links. Failed
+workspaces are preserved; the private `*.local.json` locator must not be published.
+Use the documented HTTP/1.1 environment above if the proxy drops HTTP/2 requests.
+The fault suite additionally verifies Ticket prepare/cleanup source drift and a
+successful remote push whose CLI response is lost; it uses explicitly loaded
+test process wrappers and a fixed loopback model, not real-model quality evidence.
+The npm scripts select the repository's locked pi version; a direct `node` command
+may resolve a different globally installed pi, which is recorded separately.
+
+Role tools are restricted to their worktree; `bash` accepts only approved command
+names `prepare`, `check`, `accept`. Agents cannot use the supported tools to commit,
+push, invoke GitHub or access another worktree. Trusted project commands remain
+ordinary OS processes, so this is not a credential sandbox. The controller prepares
+and cleans each Ticket's resource directory and checks actual branch/HEAD, contract
+and instructions before delivery. Unknown remote writes or unverified stopping
+retain ownership and require reconciliation; this slice does not auto-resume them.
 
 ## Development delivery
 
