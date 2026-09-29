@@ -4,6 +4,7 @@ import { integrateTicket, type Delivery, type IntegrationFacts } from './integra
 import { git } from './process.ts';
 import { SerialControl } from './slots.ts';
 import { pushNew, requireRemoteHead } from './ticket-workspace.ts';
+import type { PullRequest } from './remote.ts';
 
 export async function scheduleTickets(input: ExecutionInput, update: (ticket: TicketResult) => void,
   onFacts: (facts: IntegrationFacts) => void): Promise<'delivered' | 'blocked'> {
@@ -42,13 +43,17 @@ export async function scheduleTickets(input: ExecutionInput, update: (ticket: Ti
         signal.throwIfAborted();
         if (!('ownedWorkspace' in result)) { update(result); return; }
         const submission: Submission = result;
-        update({ number, state: 'submitted', pr: result.pr });
+        update({ number, state: 'submitted' });
         await integration.run(signal, async () => {
           try {
-            update({ number, state: 'integrating', pr: result.pr });
+            let pr: PullRequest | undefined;
+            update({ number, state: 'integrating' });
             const delivery = await integrateTicket(input, submission, acceptedFeatureHead, facts => {
               onFacts(facts);
-              update({ number, state: facts.phase === 'delivered' ? 'delivered' : 'integrated-unaccepted', pr: result.pr });
+              update({ number, state: facts.phase === 'delivered' ? 'delivered' : 'integrated-unaccepted', pr });
+            }, created => {
+              pr = created;
+              update({ number, state: 'integrating', pr });
             });
             signal.throwIfAborted();
             acceptedFeatureHead = delivery.M;

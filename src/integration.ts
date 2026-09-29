@@ -28,20 +28,32 @@ function evidenceText(evidence: GateEvidence) {
 }
 
 export async function integrateTicket(input: ExecutionInput, submitted: Submission, expectedFeatureHead: string,
-  onFacts: (facts: IntegrationFacts) => void): Promise<Delivery> {
-  if (!submitted.pr) throw new PreflightError('PR_REQUIRED', 'A Ticket PR is required before integration');
+  onFacts: (facts: IntegrationFacts) => void, onPull: (pr: PullRequest) => void): Promise<Delivery> {
   const ticket = input.plan.tickets.find(item => item.issue.number === submitted.number);
   if (!ticket) throw new PreflightError('PLAN_INVALID', 'Submitted Ticket is outside the approved plan');
   const { cwd, signal, ctx } = input;
   const remote = new Remote(cwd, input.repository, signal);
   const github = await GitHub.fromOrigin(cwd);
-  const H = submitted.pr.head.sha;
+  const H = submitted.head;
   const B = await remoteHead(cwd, input.feature);
   if (!B || B !== expectedFeatureHead) throw new PreflightError('REMOTE_DRIFT', 'Feature changed outside the accepted integration chain; preserve work and reconcile');
   await input.scope.assert();
   await github.inspectProtection(input.feature);
   await remote.requireMergeStrategy();
-  const before = await remote.pull(submitted.pr.number);
+  // GitHub preserves a PR's creation-time base. Create only after serial base
+  // selection, never while another Ticket can still advance the feature.
+  await requireRemoteHead(cwd, input.feature, B);
+  const body = `Ticket #${ticket.issue.number} for Spec #${input.plan.spec.number}.\n\n`
+    + `Original requirement: https://github.com/${input.repository}/issues/${ticket.issue.number}\n\n`
+    + `Implementation baseline: \`${submitted.startedFrom}\`\nIntegration baseline: \`${B}\`\nHead: \`${H}\`\nApproved scope: \`${input.scopeDigest}\`\n`
+    + `Implementation context digest: \`${submitted.implementationContextDigest}\`\n\n`
+    + 'Implementation submitted. Independent review, executable behavior acceptance and integration gates are still required. The Issue remains open.\n';
+  const created = await remote.createPull(submitted.ownedWorkspace.branch, input.feature,
+    `Ticket #${ticket.issue.number}: ${ticket.issue.title}`.slice(0, 240), body);
+  onPull(created);
+  ctx.ui.notify(`TICKET_PR: ${created.html_url}`, 'info');
+  signal.throwIfAborted();
+  const before = await remote.pull(created.number);
   expectedPull(before, input, ticket.issue.number, H);
   if (before.merged || before.state !== 'open' || before.base.sha !== B || !before.merge_commit_sha) {
     throw new PreflightError('CANDIDATE_UNAVAILABLE', 'A current open PR with a verifiable GitHub merge candidate is required; no retry or guessed candidate');

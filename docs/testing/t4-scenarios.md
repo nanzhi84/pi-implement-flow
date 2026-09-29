@@ -17,6 +17,14 @@
 
 本票不自动修复冲突、不恢复旧 flow、不完成最终 Spec；全部本轮可交付票完成后总 PR 仍 Draft、Spec open、main 不变。按受影响边界复用既有真实 integration、取消、scope/生命周期及 unknown-write 验收；不新增实现镜像单元测试。
 
+## 首轮真实路径暴露的候选基线边界（修复前）
+
+3984d0a 的真实 A/B→C 场景中，两张 Ticket PR 在 A 合入前创建。A 完成交付后，B 的 GitHub PR base SHA、potential merge commit 和 `refs/pull/<n>/merge` 仍绑定旧 B0；数分钟后的独立 REST、GraphQL 与 Git 读取保持一致。控制器以 CANDIDATE_UNAVAILABLE 停止，未错误合入，也未启动 C。这是并行目标路径未完成，不能计为本票验收通过。
+
+修复采用首次 PR 创建延后：实现先 commit/push 并进入 submitted 队列，释放活动槽与已清理资源；集成持锁选择最新 B 后才创建该 Ticket 的第一张 PR。继续核对 C 的有序父提交 `[B,H]`，不刷新旧 PR、不重复 push、不增加候选 branch，不靠无限轮询使旧证据有效。
+
+复用现有 diamond、同文件队列与语义冲突场景增强外部断言：至少两个真实 submitted 可在首次 review 前存在；每张 Ticket PR 的实际创建请求发生在其 submitted 之后，若已有前票 Delivery 则必须在该 Delivery 之后；新 PR 的 base SHA 和 C 第一父提交均等于当前接受的 B。每票恰好一张 PR。真实 C/M 门禁、依赖起点、资源/槽及语义失败不合入断言保持不变。取消或 PR 写入结果未知仍按原协议停止并保留已发生事实；后续修复始终使用该串行集成过程内已创建的同一 PR。
+
 ## 独立审查前补充的并行停止边界
 
 `parallel-unknown-retains-cleanup` 在真实两个实现会话重叠时，让 A 的 Ticket push 实际成功后 CLI 返回失败，且 pi 进程内该精确 ref 的 ls-remote 回读也明确不可用（外部验收独立读真实 ref），B 的模型响应尚未完成。必须先冻结普通派工并取消 B，B 的 cleanup 仍由同一活动池允许。事件屏障在 cleanup 未结束时检查资源未提前释放、竞争 controller 无法取得仓库。释放屏障后，真实 cleanup 命令先运行，再由可控故障重新留下合成资源并返回失败；B 资源必须 retained，首个 remote unknown 不能被后续 cleanup/cancel 覆盖。断言只有 feature 与 A Ticket 两次 push、没有 PR/merge/close、A 远端实际 SHA 保留、B 无远端分支、Spec/Tickets open、main 不变。该新增场景补的是并行冻结与清理的实际组合缺口，不是实现镜像单测；固定 HTTP 与失败注入均显式披露。

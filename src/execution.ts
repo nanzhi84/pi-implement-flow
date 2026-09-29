@@ -28,7 +28,7 @@ export interface TicketResult {
 }
 
 export interface Submission {
-  number: number; ticket: TicketPlan; startedFrom: string; pr: PullRequest;
+  number: number; ticket: TicketPlan; startedFrom: string; head: string; implementationContextDigest: string;
   ownedWorkspace: { cwd: string; resources: string; branch: string; expectedHead: string };
   implementationEvidence: ImplementationEvidence;
 }
@@ -75,16 +75,7 @@ export async function submitTicket(input: ExecutionInput, ticket: TicketPlan, ba
   await input.scope.assert();
   await pushNew(workspace.cwd, sha, workspace.branch, signal);
   signal.throwIfAborted();
-  const body = `Ticket #${ticket.issue.number} for Spec #${plan.spec.number}.\n\n`
-    + `Original requirement: https://github.com/${repository}/issues/${ticket.issue.number}\n\n`
-    + `Baseline: \`${base}\`\nHead: \`${sha}\`\nApproved scope: \`${input.scopeDigest}\`\n`
-    + `Implementation context digest: \`${digest(prompt)}\`\n\n`
-    + 'Implementation submitted. Independent review, executable behavior acceptance and integration gates are still required. The Issue remains open.\n';
-  const pr = await remote.createPull(workspace.branch, feature, `Ticket #${ticket.issue.number}: ${ticket.issue.title}`.slice(0, 240), body);
-  if (pr.head.sha !== sha) throw new PreflightError('REMOTE_DRIFT', 'PR head differs from the committed implementation');
-  signal.throwIfAborted();
-  ctx.ui.notify(`TICKET_PR: ${pr.html_url}`, 'info');
-  return { number: ticket.issue.number, ticket, startedFrom: base, pr,
+  return { number: ticket.issue.number, ticket, startedFrom: base, head: sha, implementationContextDigest: digest(prompt),
     ownedWorkspace: { cwd: workspace.cwd, resources: workspace.resources, branch: workspace.branch, expectedHead: sha },
     implementationEvidence: { baseline: base, mutations: result.mutations } };
 }
