@@ -1,6 +1,7 @@
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { repository, assertRepositoryIdentity } from '../acceptance-repository.mjs';
 
 // Read-only observation at real UI and process boundaries, scoped to one Ticket.
@@ -9,6 +10,8 @@ export default function repairObserver(pi) {
   let config; let ui; let notify;
   const heads = new Set(); const gates = []; const mergeRequests = []; const closeRequests = [];
   const started = []; const barrierErrors = []; const barriers = [];
+  const candidateWaits = []; const deferredReads = [];
+  let lastFailedCandidate; let pendingReads = 0; let repairedHead; let armed = false;
   let targetPr;
   const run = (command, args) => childProcess.execFileSync(command, args, { cwd: config.cwd,
     encoding: 'utf8', timeout: 120_000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -42,8 +45,15 @@ export default function repairObserver(pi) {
             .catch(() => { barrierErrors.push('Upstream submission could not reach the isolated model barrier'); }));
         }
       }
+      const failed = /^GATE_FAILED: candidate ([a-f0-9]{40})/.exec(message);
+      if (failed) lastFailedCandidate = failed[1];
       const repaired = new RegExp(`^TICKET_REPAIRED: #${config.ticket} [a-f0-9]{40} ([a-f0-9]{40})`).exec(message);
-      if (repaired) heads.add(repaired[1]);
+      if (repaired) {
+        heads.add(repaired[1]);
+        if (config.deferCandidate && !armed) { armed = true; pendingReads = 2; repairedHead = repaired[1]; }
+      }
+      const waiting = new RegExp(`^CANDIDATE_WAIT: #${config.ticket} ([a-f0-9]{40}) ([a-f0-9]{40})$`).exec(message);
+      if (waiting) candidateWaits.push({ H: waiting[1], B: waiting[2] });
       const passed = /^GATE_PASSED: (candidate|actual) ([a-f0-9]{40}) (https:\/\/github\.com\/\S+)/.exec(message);
       if (passed) {
         const parents = run('git', ['show', '-s', '--format=%P', passed[2]]).split(' ');
@@ -53,6 +63,14 @@ export default function repairObserver(pi) {
     };
     childProcess.spawn = function (command, args, options) {
       const path = args?.find(item => typeof item === 'string' && item.startsWith(`repos/${repository}/`));
+      if (pendingReads && command === 'gh' && path === `repos/${repository}/pulls/${targetPr}`
+        && args[args.indexOf('--method') + 1] === 'GET') {
+        pendingReads -= 1;
+        deferredReads.push({ H: repairedHead, oldC: lastFailedCandidate });
+        return original.call(this, process.execPath, [fileURLToPath(new URL('./repair-read-command.mjs', import.meta.url)), ...args], {
+          ...options, env: { ...options.env, FLOW_FIXTURE_PR: String(targetPr), FLOW_FIXTURE_HEAD: repairedHead, FLOW_FIXTURE_OLD_C: lastFailedCandidate },
+        });
+      }
       if (command === 'gh' && path === `repos/${repository}/pulls/${targetPr}/merge` && args.includes('PUT')) {
         const index = args.indexOf('--input'); const payload = JSON.parse(readFileSync(args[index + 1], 'utf8'));
         mergeRequests.push({ sha: payload.sha, method: payload.merge_method });
@@ -64,7 +82,7 @@ export default function repairObserver(pi) {
   } });
   pi.registerCommand('fixture-repair-observe-status', { handler: async (_source, ctx) => {
     await Promise.all(barriers);
-    ctx.ui.notify(`REPAIR_OBSERVER: ${JSON.stringify({ gates, mergeRequests, closeRequests, started, barrierErrors })}`, 'info');
+    ctx.ui.notify(`REPAIR_OBSERVER: ${JSON.stringify({ gates, mergeRequests, closeRequests, started, barrierErrors, candidateWaits, deferredReads })}`, 'info');
   } });
   pi.on('session_shutdown', async () => { childProcess.spawn = original; if (ui) ui.notify = notify; syncBuiltinESMExports(); });
 }

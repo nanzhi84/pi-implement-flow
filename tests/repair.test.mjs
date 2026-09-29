@@ -25,6 +25,13 @@ test('five verified repairs continue without a repair-count limit', options('pro
   assert.equal(result.status, 'delivered');
   assert.equal(result.ticketPulls.length, 1);
   assert.equal(result.repairs.length, 5);
+  assert.equal(result.deferredReads.length, 2, 'two real GET responses exposed the deterministic null/old-C boundary');
+  assert.ok(result.candidateWaits.filter(wait => wait.H === result.repairs[0].after).length >= 2);
+  for (const deferred of result.deferredReads) {
+    assert.equal(deferred.H, result.repairs[0].after);
+    assert.ok(result.candidateWaits.some(wait => wait.H === deferred.H));
+    assert.ok(!result.gates.some(gate => gate.sha === deferred.oldC), 'old failing C never gains approval while the new H is pending');
+  }
   const reports = result.failures.map(failure => readFailure(f, failure));
   assert.deepEqual(reports.map(report => report.behavior.assertions.filter(row => !row.passed).length), [5, 4, 3, 2, 1]);
   const firstNames = reports[0].behavior.assertions.map(row => row.name).sort();

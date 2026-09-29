@@ -10,7 +10,7 @@ import { cannotReconcile, unknownWrite, RemoteCleanupFailure, RemoteLifecycleFai
 export interface PullRequest {
   number: number; html_url: string; state: 'open' | 'closed'; draft: boolean; body: string; title: string;
   user: { id: number; login: string };
-  merged: boolean; merge_commit_sha: string | null;
+  merged: boolean; merge_commit_sha: string | null; mergeable: boolean | null;
   head: { ref: string; sha: string; repo: { full_name: string } };
   base: { ref: string; sha: string; repo: { full_name: string } };
 }
@@ -45,6 +45,7 @@ function validPull(value: unknown, repository: string, details = false): value i
     && [pr.head, pr.base].every(ref => ref && typeof ref.ref === 'string' && /^[a-f0-9]{40}$/.test(ref.sha)
       && ref.repo?.full_name?.toLowerCase() === repository.toLowerCase())
     && (!details || (typeof pr.merged === 'boolean'
+      && (pr.mergeable === null || typeof pr.mergeable === 'boolean')
       && (pr.merge_commit_sha === null || /^[a-f0-9]{40}$/.test(pr.merge_commit_sha))));
 }
 

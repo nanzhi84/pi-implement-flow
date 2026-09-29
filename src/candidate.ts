@@ -13,6 +13,7 @@ import { requireRemoteHead } from './remote-git.ts';
 import { commitParents } from './code-proof.ts';
 import { git } from './process.ts';
 import type { Evidence } from './evidence.ts';
+import { setTimeout as delay } from 'node:timers/promises';
 
 export class TicketPaused extends PreflightError {
   constructor(readonly ticket: number, readonly reason: 'requirements-decision' | 'no-code-change' | 'no-progress' | 'progress-unverified', readonly evidence: Evidence) {
@@ -22,6 +23,28 @@ export class TicketPaused extends PreflightError {
 export function expectedPull(pr: PullRequest, input: ExecutionInput, submission: RepairSubmission) {
   if (pr.head.ref !== submission.ownedWorkspace.branch || pr.base.ref !== input.feature || pr.head.sha !== submission.pr.head.sha) {
     throw new PreflightError('EVIDENCE_STALE', 'Ticket PR identity or head changed; prior evidence cannot authorize this version');
+  }
+}
+async function currentCandidate(input: ExecutionInput, remote: Remote, submission: RepairSubmission, B: string) {
+  const deadline = performance.now() + 60_000;
+  while (true) {
+    input.signal.throwIfAborted();
+    if (performance.now() >= deadline) throw new PreflightError('CANDIDATE_UNAVAILABLE', 'GitHub candidate computation exceeded the bounded read window; preserve the current PR without replaying writes');
+    await input.scope.assert();
+    await requireRemoteHead(input.cwd, input.feature, B);
+    const pr = await remote.pull(submission.pr.number);
+    input.signal.throwIfAborted();
+    expectedPull(pr, input, submission);
+    if (pr.merged || pr.state !== 'open' || pr.base.sha !== B) {
+      throw new PreflightError('CANDIDATE_UNAVAILABLE', 'Candidate must remain the same open PR at the accepted base');
+    }
+    if (pr.mergeable !== null) return pr;
+    const remaining = deadline - performance.now();
+    if (remaining <= 0) throw new PreflightError('CANDIDATE_UNAVAILABLE', 'GitHub candidate computation did not finish within the bounded read window; preserve the current PR without replaying writes');
+    input.ctx.ui.notify(`CANDIDATE_WAIT: #${submission.number} ${pr.head.sha} ${B}`, 'info');
+    // This is GitHub's explicit pending state, not a retry of a failed read or
+    // write. No role/activity/resource lease is held while observing it.
+    await delay(Math.min(2_000, remaining), undefined, { signal: input.signal });
   }
 }
 export async function reviewedCandidate(input: ExecutionInput, initial: RepairSubmission, B: string): Promise<{
@@ -37,18 +60,17 @@ export async function reviewedCandidate(input: ExecutionInput, initial: RepairSu
   while (true) {
     signal.throwIfAborted(); await input.scope.assert(); await requireRemoteHead(cwd, input.feature, B);
     await github.inspectProtection(input.feature); await remote.requireMergeStrategy();
-    const before = await remote.pull(submission.pr.number);
-    expectedPull(before, input, submission);
-    if (before.merged || before.state !== 'open' || before.base.sha !== B) throw new PreflightError('CANDIDATE_UNAVAILABLE', 'Repair candidate must remain an open PR at the accepted base');
+    const before = await currentCandidate(input, remote, submission, B);
     const H = before.head.sha;
     let versions: Versions | undefined;
-    if (before.merge_commit_sha) {
+    if (before.mergeable === true && before.merge_commit_sha) {
       const C = before.merge_commit_sha;
       await git(cwd, ['fetch', '--no-write-fetch-head', 'origin', C], signal);
       if (JSON.stringify(await commitParents(cwd, C)) === JSON.stringify([B, H])) versions = { H, B, C };
     }
     let defect: CandidateDefect;
     if (!versions) {
+      if (before.mergeable !== false) throw new PreflightError('CANDIDATE_UNAVAILABLE', 'Ready GitHub candidate does not have the exact current ordered base/head parents; no stale or guessed commit may authorize a gate');
       const preparation = await canonicalMerge(cwd, H, B, signal);
       if (!preparation.conflicts.length) throw new PreflightError('CANDIDATE_UNAVAILABLE', 'GitHub has not provided the actual merge candidate; no guessed commit may authorize a gate');
       defect = await publishConflict(input, submission, preparation);

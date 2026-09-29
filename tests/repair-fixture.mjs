@@ -109,6 +109,7 @@ export async function repairFixture(t, scenario) {
     const start = event.message.indexOf('\n{'); assert.ok(start >= 0); approved = JSON.parse(event.message.slice(start + 1)); return true;
   } });
   assert.equal((await pi.request('prompt', { message: `/fixture-repair-observe ${JSON.stringify({ mode: 'observe', repository, spec: f.spec.number, ticket: target.number,
+    deferCandidate: scenario === 'progressive-five',
     ...(upstream ? { upstream: upstream.number, barrierUrl: fixed.barrierUrl } : {}) })}` })).success, true);
   if (real) assert.equal((await pi.request('prompt', { message: `/fixture-repair-model ${JSON.stringify({ repository, provider: fixed.provider })}` })).success, true);
   const wrapped = { ...f, ticket: target, contract, fixed, pi, reportCache: new Map(), get approved() { return approved; },
@@ -150,6 +151,7 @@ export async function repairFixture(t, scenario) {
       return { status, failures, gates, repairs, proof: latest.implementationEvidence, M: delivered?.[1], ticketPulls,
         repairModel, repairPrompts: [...output.matchAll(new RegExp(`REPAIR_STARTED: Ticket #${target.number} `, 'g'))].length,
         mergeRequests: observer.mergeRequests, closeRequests: observer.closeRequests,
+        candidateWaits: observer.candidateWaits, deferredReads: observer.deferredReads,
         question: question ? { url: question.html_url, body: question.body } : undefined };
     },
     verifyInvariants(state) {
@@ -179,6 +181,7 @@ export async function repairFixture(t, scenario) {
     pass(result, assertions) {
       f.pass({ assertions, status: result.status, boundary: real ? 'controlled initial SDK transport; real OpenAI repair and independent review' : 'deterministic model HTTP; actual SDK writes/CLI/GitHub',
         failures: result.failures, gates: result.gates, appendedCommits: result.repairs, M: result.M,
+        candidateWaits: result.candidateWaits, deferredReads: result.deferredReads,
         ticketPr: result.ticketPulls[0].html_url, repairPrompts: result.repairPrompts, proofSegments: result.proof.segments.length });
     },
   };

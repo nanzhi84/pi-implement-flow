@@ -13,7 +13,8 @@
 | 无差异或无关代码噪声 | 不空提交；新 tree、SHA、URL、模型“已改善”不算进展；相同失败没有已验证解决时保留成果并暂停 |
 | 断言消失、旧通过退化、review 缺陷被重新措辞 | 不算进展；完整断言 IDs 与稳定旧 blocker 引用仍须逐项核对，不降低门禁 |
 | 最新已接受 B 与 H 有文本冲突 | 控制器准备可独立重算的 merge tree/stages；Agent 仅解决获准代码，完成 [H,B] 提交且追加到同一 open PR |
-| GitHub 在新 B/H 上暂未提供 C，或仍返回旧 parents 的 C | 不能使用旧 C 作为门禁；只在当前精确 H/B 可重算出真实文本冲突时发布 conflict 证据并修复，无冲突时保持 candidate unavailable |
+| GitHub 明确计算完毕但没有当前有效 C | 不能使用旧 C 作为门禁；mergeable=false 且当前精确 H/B 可重算出真实文本冲突时才发布 conflict 证据并修复；true 却缺少 C 或 parents 不匹配时保持 candidate unavailable |
+| 同 PR 追加 H 后 mergeable=null，merge_commit_sha 仍是上一 H 的 C | 只在精确 H/B、identity、scope 不变时有界、可取消地等候后台计算；等待在资源和计算槽外，不重新 push/建 PR/派修复；true 后只接受真实新 C 的 [B,H] parents，false 才核对真实文本冲突；读失败或漂移立即停止，超时保留现场 |
 | 无文本冲突但组合语义错误 | 最新 C 的真实 CLI 揭示失败，同票修复后再次完整验证；不凭旧起点通过放行 |
 | 冲突需要新业务选择 | 修改前提出具体问题，保留原 PR/源码/失败依据，相关 Ticket blocked，不擅自选 ours/theirs |
 | 旧 H 到新 H 的证据链 | 单 parent Agent 编辑与 controller merge 分段；每段完整路径/原始 blob/mode 覆盖，不把上游变化伪写成工具事件 |
@@ -23,7 +24,7 @@
 ## 最小场景
 
 1. `real-repair`：用明确标注的初始缺陷输入保证到达修复边界，真实 OpenAI `gpt-6-astra` 执行修复和独立审查，最终从远端 M 运行真实业务行为。初始缺陷输入不是 OpenAI 质量证据，修复/审查模型来源独立记录。
-2. `progressive-five`：固定真实 SDK 工具初始留下五个真实 CLI 缺陷，每次只解决一个，批准的完整断言集始终保留。至少五次修复后交付；检查同一 PR、每轮实际版本及下载工件、失败集合的真实变化。
+2. `progressive-five`：固定真实 SDK 工具初始留下五个真实 CLI 缺陷，每次只解决一个，批准的完整断言集始终保留。首个 append 后的两个真实 GitHub GET 响应在测试 transport 明确改成 null + 前一 C，确定性复现已观察到的异步候选边界；原始远端写和随后真实候选不改。检查没有把旧 C 放行、没有额外 repair/write，仍正好五次修复后交付、同一 PR、每轮实际版本及下载工件、失败集合的真实变化。
 3. `no-progress-no-diff`：固定修复重放原文件，保留失败工件后 no-progress；没有空提交、第二 PR 或继续派工。
 4. `no-progress-noise`：修复只加无关注释，新 tree 仍产生同一失败集，独立 review 不认可解决；停止且保留真实新提交，不用代码噪声延长循环。
 5. `conflict-repair`：同 Spec 的 A/B 从同一旧基线真实修改同文件。B 的初始固定模型仅在观察到 A 的真实 `FLOW_TICKET_STATE submitted` 及精确远端 head readback 后返回写入，使 A 先进入 FIFO 集成；Ticket PR 只在持有集成控制权并选择最新 B 后首次创建；不靠 sleep，不等待会争用 B 所持资源的 A gate/Delivery。若屏障未到达，场景失败而非继续猜测。A 先交付后，B 在最新 B 上经历文本冲突和随后可执行的组合语义失败，在同一个 B PR 追加修复，最终通过。独立重算准备 tree、conflict stages、所有编辑段与实际 C/M，不调用产品 verifier 证明自己。
