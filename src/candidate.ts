@@ -35,7 +35,7 @@ export async function reviewedCandidate(input: ExecutionInput, initial: RepairSu
   let previousAssertions: AssertionFact[] = [];
   const progress = new RepairProgress();
   while (true) {
-    signal.throwIfAborted(); await input.assertScope(); await requireRemoteHead(cwd, input.feature, B);
+    signal.throwIfAborted(); await input.scope.assert(); await requireRemoteHead(cwd, input.feature, B);
     await github.inspectProtection(input.feature); await remote.requireMergeStrategy();
     const before = await remote.pull(submission.pr.number);
     expectedPull(before, input, submission);
@@ -68,7 +68,7 @@ export async function reviewedCandidate(input: ExecutionInput, initial: RepairSu
     if (Buffer.byteLength(body, 'utf8') > 60_000) throw new PreflightError('EVIDENCE_CAPACITY', 'Complete failure index does not fit the remote comment contract; no truncation or repair');
     const comment = await remote.comment(before.number, body);
     ctx.ui.notify(`REVIEW_FINDINGS: candidate ${evidence.codeSha} ${comment.html_url}`, 'error');
-    await input.assertScope(); await requireRemoteHead(cwd, input.feature, B);
+    await input.scope.assert(); await requireRemoteHead(cwd, input.feature, B);
     const current = await remote.pull(before.number); expectedPull(current, input, submission);
     if (current.merged || current.state !== 'open') throw new PreflightError('REMOTE_DRIFT', 'PR changed after failure publication; no repair');
     if (isGateDefect(defect)) {

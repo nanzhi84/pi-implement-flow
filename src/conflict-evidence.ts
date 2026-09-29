@@ -15,14 +15,18 @@ import { createProbe } from './workspace.ts';
 export async function publishConflict(input: ExecutionInput, submission: RepairSubmission, preparation: MergePreparation): Promise<TextConflictDefect> {
   const { signal, contract, cwd } = input;
   if (!preparation.conflicts.length || preparation.H !== submission.pr.head.sha) throw new PreflightError('CONFLICT_INVALID', 'A current reproducible text conflict is required');
+  return input.resources.run(submission.number, 'conflict', signal, async cleaned => {
+  const label = (kind: string) => ({ ticket: submission.number, phase: 'conflict', kind, codeSha: preparation.H });
   const workspace = await createProbe(cwd, preparation.H, signal);
   const path = join(workspace.resources, 'conflict.json');
   const env = { FLOW_RESOURCE_DIR: workspace.resources, FLOW_CODE_SHA: preparation.H, FLOW_REPOSITORY: input.repository,
-    FLOW_REPORT: path, FLOW_STAGE: 'conflict' };
+    FLOW_REPORT: path, FLOW_STAGE: 'conflict', FLOW_TICKET: String(submission.number) };
   const execute = async (name: 'prepare' | 'cleanup' | 'publish', cancellable = true) => {
     try {
-      const result = await run(contract.commands[name], { cwd: workspace.cwd, env, signal: cancellable ? signal : undefined,
-        timeoutMs: contract.commandTimeoutMs, label: `conflict ${name}` });
+      const command = () => run(contract.commands[name], { cwd: workspace.cwd, env, signal: cancellable ? signal : undefined,
+        timeoutMs: contract.commandTimeoutMs, label: `conflict ${name}`, operation: name });
+      const result = name === 'cleanup' ? await input.activities.runCleanup(label(name), command)
+        : await input.activities.run(label(name), signal, command);
       await workspace.check(); return result;
     } catch (error) {
       if (!(error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED')) await workspace.check();
@@ -38,8 +42,9 @@ export async function publishConflict(input: ExecutionInput, submission: RepairS
     if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
     throw new PreflightError('CLEANUP_FAILED', 'Conflict evidence cleanup failed; no repair authorized');
   }
+  cleaned();
   if (failure) throw failure;
-  await input.assertScope();
+  await input.scope.assert();
   const report = { schema: 1, generator: 'pi-implement-flow/ticket-conflict-v1', kind: 'ticket-integration-conflict',
     repository: input.repository, spec: input.plan.spec.number, ticket: submission.number, codeSha: preparation.H,
     scopeDigest: input.scopeDigest, contractDigest: digest(contract), instructionsDigest: digest(input.approvedInstructions),
@@ -51,7 +56,8 @@ export async function publishConflict(input: ExecutionInput, submission: RepairS
   const evidence = await publishEvidence({ cwd, repository: input.repository, codeSha: preparation.H, contract, path, report,
     beforePublish: () => signal.throwIfAborted(), publish: () => execute('publish', false) });
   await workspace.check();
-  signal.throwIfAborted(); await input.assertScope();
+  signal.throwIfAborted(); await input.scope.assert();
   input.ctx.ui.notify(`GATE_FAILED: candidate ${preparation.H} text-conflict ${evidence.url} ${evidence.sha256}`, 'error');
   return { kind: 'text-conflict', preparation, evidence };
+  });
 }

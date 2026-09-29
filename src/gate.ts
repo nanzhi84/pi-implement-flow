@@ -27,10 +27,12 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
   const approvedInstructions = input.approvedInstructions;
   const approvedContext = evidenceContext(input.repository, input.plan, ticket, contract, approvedInstructions, input.scopeDigest);
   ctx.ui.notify(`GATE_STARTED: ${phase} ${codeSha}`, 'info');
+  return input.resources.run(ticket.issue.number, phase, signal, async cleaned => {
+  const label = (kind: string) => ({ ticket: ticket.issue.number, phase, kind, codeSha });
   const workspace = await createProbe(cwd, codeSha, signal);
   const reportPath = join(workspace.resources, 'gate.json');
   const env = { FLOW_RESOURCE_DIR: workspace.resources, FLOW_CODE_SHA: codeSha, FLOW_REPOSITORY: input.repository,
-    FLOW_REPORT: reportPath, FLOW_STAGE: phase };
+    FLOW_REPORT: reportPath, FLOW_STAGE: phase, FLOW_TICKET: String(ticket.issue.number) };
   if (digest(await readContract(workspace.cwd)) !== digest(contract)
     || digest(await instructionSnapshot(workspace.cwd, contract)) !== digest(approvedInstructions)) {
     throw new PreflightError('SCOPE_CHANGED', 'Candidate changed approved commands or role instructions; preserve work and request a scope decision');
@@ -41,8 +43,10 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
     const options = { cwd: workspace.cwd, env, signal: cancellable ? signal : undefined,
       timeoutMs: contract.commandTimeoutMs, label: `${phase} ${name}` };
     try {
-      const output = name === 'check' || name === 'accept'
-        ? await runReportedCommand(name, codeSha, contract.commands[name], options) : await run(contract.commands[name], options);
+      const command = () => name === 'check' || name === 'accept'
+        ? runReportedCommand(name, codeSha, contract.commands[name], options) : run(contract.commands[name], options);
+      const output = name === 'cleanup' ? await input.activities.runCleanup(label(name), command)
+        : await input.activities.run(label(name), signal, command);
       await workspace.check();
       if (name !== 'publish') commandResults[name] = 'passed';
       return output;
@@ -78,14 +82,14 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
     }
     // Only a normally ended strict behavior failure can reach this fresh review.
     // Infrastructure, unknown effects and process lifecycle failures never do.
-    review = await runReview({ cwd: workspace.cwd, resources: workspace.resources, environment: env,
+    review = await input.activities.run(label('review'), signal, () => runReview({ cwd: workspace.cwd, resources: workspace.resources, environment: env,
       contract, ctx, signal, codeSha, scopeDigest: input.scopeDigest, previousBlockers: repair.previousBlockers,
       prompt: JSON.stringify({ task: 'Independently review the exact integration result against approved scope. Inspect code, diff, changed commands, removed assertions and reduced coverage. The command statuses below are factual: failed or not-run never means passed. Report concrete defects and verify existing acceptance meaning and coverage is preserved. Implementation statements are not approval.',
         spec: input.plan.spec, ticket, approvedChanges: [], versions, phase, codeSha, scopeDigest: input.scopeDigest,
         commandSource: '.pi/flow.json', commands: contract.commands, commandResults, assertions, acceptance, behavior,
         instructions: approvedInstructions, sourceDiff: diff, implementationEvidence, previousBlockers: repair.previousBlockers,
       }, null, 2),
-    });
+    }));
     await workspace.check();
     await verifyResolutions(cwd, codeSha, repair.previousBlockers, review, assertions);
     for (const old of repair.previousAssertions ?? []) {
@@ -101,6 +105,7 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
     if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
     throw new PreflightError('CLEANUP_FAILED', 'Gate cleanup failed; preserve candidate and resources; no integration authority');
   }
+  cleaned();
   if (failure) throw failure;
   signal.throwIfAborted();
   const blocked = !!review!.blockers.length || !!review!.resolutions?.some(item => item.status === 'unresolved');
@@ -120,7 +125,7 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
     beforePublish: () => signal.throwIfAborted(), publish: () => execute('publish', false) });
   await workspace.check();
   signal.throwIfAborted();
-  await input.assertScope();
+  await input.scope.assert();
   if (defect) {
     const binding: PublishedDefect = { evidence, phase, codeSha, versions, scopeDigest: input.scopeDigest,
       contractDigest: digest(contract), instructionsDigest: digest(approvedInstructions),
@@ -133,4 +138,5 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
   await workspace.remove();
   ctx.ui.notify(`GATE_PASSED: ${phase} ${codeSha} ${evidence.url}`, 'info');
   return { ...evidence, phase, versions, review: review! };
+  });
 }

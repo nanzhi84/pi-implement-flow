@@ -42,7 +42,7 @@ test('real OpenAI model delivers and independently reviews the actual integrated
   assert.match(output, new RegExp(`AGENT_STARTED: Ticket #${f.ticket.number}`));
   assert.match(output, /TICKET_PR: https:\/\/github\.com\//);
   assert.match(output, /TICKET_DELIVERED:/);
-  assert.match(await f.pi.flow('status'), /paused.*scheduler-not-installed/);
+  assert.match(await f.pi.flow('status'), /paused.*final-acceptance-not-installed/);
   const observed = await f.observer();
   assertTicketOrigin(f, observed);
   assert.equal(observed.totalBeforeIntegration, 0, 'no empty total PR before actual integration');

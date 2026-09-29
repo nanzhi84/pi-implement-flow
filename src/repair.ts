@@ -34,7 +34,7 @@ export async function repairCandidate(input: ExecutionInput, submitted: RepairSu
     throw new PreflightError('REPAIR_NOT_AUTHORIZED', 'Only a published failure for this current unmerged candidate may authorize repair');
   }
   const remote = new Remote(input.cwd, repository, signal);
-  await input.assertScope();
+  await input.scope.assert();
   await requireRemoteHead(input.cwd, input.feature, B);
   const before = await remote.pull(submitted.pr.number);
   if (before.merged || before.state !== 'open' || before.head.sha !== H || before.head.ref !== submitted.ownedWorkspace.branch || before.base.ref !== input.feature) {
@@ -43,7 +43,7 @@ export async function repairCandidate(input: ExecutionInput, submitted: RepairSu
   const workspace = { ...submitted.ownedWorkspace, base: submitted.ownedWorkspace.expectedHead };
   if (workspace.base !== H) throw new PreflightError('WORKSPACE_DRIFT', 'Owned repair worktree and PR no longer share the same head');
   ctx.ui.notify(`REPAIR_STARTED: Ticket #${submitted.number} ${H} ${evidence.url}`, 'info');
-  const { prepared, result } = await runRepairImplementation(input, workspace, B, prepared => JSON.stringify({ task: 'repair-candidate', spec: input.plan.spec, ticket: submitted.ticket,
+  const { prepared, result } = await runRepairImplementation(input, submitted.number, workspace, B, prepared => JSON.stringify({ task: 'repair-candidate', spec: input.plan.spec, ticket: submitted.ticket,
     approvedChanges: [], scopeDigest: input.scopeDigest, startedFrom: submitted.startedFrom,
     H, B, failure: isGateDefect(defect) ? { behavior: 'report' in defect ? defect.report : undefined,
       review: defect.review, binding: defect.binding } : { kind: 'text-conflict', preparation: defect.preparation },
@@ -55,7 +55,7 @@ export async function repairCandidate(input: ExecutionInput, submitted: RepairSu
     || digest(await instructionSnapshot(workspace.cwd, contract)) !== digest(input.approvedInstructions)) {
     throw new PreflightError('SCOPE_CHANGED', 'Repair changed approved commands or role instructions; no push authorized');
   }
-  await input.assertScope();
+  await input.scope.assert();
   await requireRemoteHead(input.cwd, input.feature, B);
   if (result.kind === 'blocked') {
     if (result.mutations.length || (await git(workspace.cwd, ['diff', '--name-only'], signal)).trim()) {
@@ -74,7 +74,7 @@ export async function repairCandidate(input: ExecutionInput, submitted: RepairSu
   }
   await verifyMutationEvidence(workspace.cwd, committed.proof, committed.head, committed.head, input.scopeDigest);
   if ((await git(workspace.cwd, ['status', '--porcelain'], signal)).trim()) throw new PreflightError('WORKSPACE_DRIFT', 'Repair commit did not leave the owned worktree clean');
-  await input.assertScope();
+  await input.scope.assert();
   await requireRemoteHead(input.cwd, input.feature, B);
   await pushRepair(workspace.cwd, workspace.branch, H, committed.head, signal);
   const current = await remote.pull(before.number);
