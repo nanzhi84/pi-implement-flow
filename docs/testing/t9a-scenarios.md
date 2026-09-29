@@ -27,3 +27,15 @@
 正常真实 OpenAI 实现与候选/实际 review 复用 integration 的 real-integration；字节完整性复用 evidence-unavailable；生命周期与 unknown replay 复用 ticket-faults，以及已有 T1 unquiesced 行为必要选定场景，不机械重跑全部历史 39。SDK retry disabled 的既有合同分支未被本次改写，若未单独跑真实场景则不得宣称其新增验收。
 
 先写行为脚本，再修改生产代码。最终验收在独立 review 后的 clean commit 运行，记录初末 SHA/dirty/源码内容指纹、真实宿主 SDK、baseline、选择/skip、最终子进程 exit 和完整断言。中途 rows、HTTP 成功、typecheck 或旧 SHA 通过不能作为最终来源；前置传输故障保留原报告，可同版本 fresh fixture 精确补验。
+
+## 真实前置失败暴露的 Harness 边界（修正前记录）
+
+冻结 c791 的完整 18 场景在前 5 项通过后，取消场景先于模型调用遇到 `PUBLISH_UNRESOLVED`，控制器正确保留 ownership。测试仍等待 `MODEL_RETRY` 满 10 分钟；pi 随 teardown 退出后，自己留下的 socket 又使后 12 项仅得到 `FLOW_OWNED`，未触及目标注入。该次真实 exit 1 / pass 5 / fail 13 保留为历史，不伪称取消或后续故障验收成功。
+
+最小修正仅作用于基础设施 Harness：
+
+- 模型 retry 等待同时观察实际 `/flow` Promise 完成；如果流程先停止，及时失败，且没有遗留等待计时器继续拖住进程。未观察实际 retry 不能发取消并声称目标通过。
+- 每个基础设施场景开始时确认对应仓库不存在 controller socket；已有或无法判定的资源一律拒绝，不争抢。场景的所有 pi 进程退出后，才可核对新产生资源确为 socket、属于本用户、`lsof` 明确无 owner，且前后 device/inode 一致；只清本测试留下的陈旧 socket，不删除 Git/工作空间或重放远端动作。
+- 失败证据只保留外部通知中的结构化安全诊断，不存原始 stderr、模型输出、token、本机路径或整个通知串。采集缺失不能推断故障原因。
+
+每项业务断言继续检查运行中的 ownership/停止行为；teardown 只整理已退出的测试进程遗留物，任何清理疑义仍让 Node 最终退出失败。修正后在新冻结源码重新执行目标 E2E，不复用旧 SHA 的中间通过作为新来源。
