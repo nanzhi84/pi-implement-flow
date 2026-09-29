@@ -6,6 +6,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import { PreflightError, type Contract } from './contract.ts';
 import { confinedTools } from './agent-tools.ts';
+import { classifyFailure } from './failure.ts';
 
 export async function instructionSnapshot(cwd: string, contract: Contract) {
   const files = [...new Set([...contract.agents.implementation.instructions, ...contract.agents.review.instructions])];
@@ -62,10 +63,14 @@ export async function createRole(
 export async function checkAgentReadiness(cwd: string, contract: Contract, ctx: ExtensionContext, signal: AbortSignal) {
   const guard = AbortSignal.any([signal, AbortSignal.timeout(30_000)]);
   try {
-    if (!ctx.model) throw new Error('No selected model');
+    if (!ctx.model) throw new PreflightError('AGENT_UNAVAILABLE', 'No model selected',
+      { operation: 'model-setup', kind: 'configuration', reason: 'missing-configuration', transient: false });
     const runtime = await ModelRuntime.create({ signal: guard, allowModelNetwork: false });
     const model = runtime.getModel(ctx.model.provider, ctx.model.id);
-    if (!model || !(await runtime.checkAuth(model.provider, { signal: guard }))) throw new Error('Model authentication unavailable');
+    if (!model) throw new PreflightError('AGENT_UNAVAILABLE', 'Selected model is not configured',
+      { operation: 'model-setup', kind: 'configuration', reason: 'missing-configuration', transient: false });
+    if (!(await runtime.checkAuth(model.provider, { signal: guard }))) throw new PreflightError('AGENT_UNAVAILABLE', 'Model authentication unavailable',
+      { operation: 'model-setup', kind: 'configuration', reason: 'authentication', transient: false });
     const implementer = await createRole(cwd, contract, 'implementation', runtime, model);
     try {
       const reviewer = await createRole(cwd, contract, 'review', runtime, model);
@@ -79,8 +84,10 @@ export async function checkAgentReadiness(cwd: string, contract: Contract, ctx: 
         guard.throwIfAborted();
       } finally { reviewer.session.dispose(); }
     } finally { implementer.session.dispose(); }
-  } catch {
+  } catch (error) {
     if (signal.aborted) signal.throwIfAborted();
-    throw new PreflightError('AGENT_UNAVAILABLE', 'Selected model/authentication or isolated implementation/review contexts are unavailable; configure pi credentials and explicit role resources');
+    if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
+    throw new PreflightError('AGENT_UNAVAILABLE', 'Selected model/authentication or isolated implementation/review contexts are unavailable; configure pi credentials and explicit role resources',
+      error instanceof PreflightError ? error.detail : classifyFailure('model-setup', error));
   }
 }

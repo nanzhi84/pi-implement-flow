@@ -60,7 +60,7 @@ export async function publishEvidence(input: {
     throw new PreflightError('EVIDENCE_INVALID', 'Evidence must be a same-repository release asset with matching SHA256 and sufficient retention');
   }
   const bytes = await runBytes(['gh', 'release', 'download', link[2]!, '--repo', input.repository, '--pattern', link[3]!, '--output', '-'], {
-    cwd: input.cwd, signal: input.signal, timeoutMs: input.contract.commandTimeoutMs, label: 'evidence download',
+    cwd: input.cwd, signal: input.signal, timeoutMs: input.contract.commandTimeoutMs, label: 'evidence download', operation: 'github-read',
   });
   if (createHash('sha256').update(bytes).digest('hex') !== hash) throw new PreflightError('EVIDENCE_INVALID', 'Downloaded evidence bytes do not match the executed report');
   return { url: publication.url as string, sha256: hash, codeSha: input.codeSha };

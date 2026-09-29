@@ -1,16 +1,15 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { PreflightError } from './contract.ts';
 
-const execute = promisify(execFile);
+import { run } from './process.ts';
 
 async function command(cwd: string, program: string, args: string[]): Promise<string> {
   try {
-    const result = await execute(program, args, { cwd, timeout: 30_000, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' });
-    return result.stdout;
-  } catch {
+    return await run([program, ...args], { cwd, timeoutMs: 30_000, label: `Read-only ${program}`,
+      operation: program === 'gh' ? 'github-read' : 'git-read' });
+  } catch (error) {
+    if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
     // Do not surface subprocess output, URLs with credentials, or private local paths.
-    throw new PreflightError('REMOTE_READ_FAILED', `Read-only ${program} operation failed; check authentication, network and permissions; no automatic retry`);
+    throw new PreflightError('REMOTE_READ_FAILED', `Read-only ${program} operation failed; check authentication, network and permissions; no automatic retry`, error instanceof PreflightError ? error.detail : undefined);
   }
 }
 function record(value: unknown): Record<string, unknown> {
@@ -86,8 +85,9 @@ export class GitHub {
         '-f', `owner=${owner}`, '-f', `name=${name}`]));
       classicCount = record(record(record(record(response).data).repository).branchProtectionRules).totalCount;
       if (!Number.isSafeInteger(classicCount) || (classicCount as number) < 0) throw new Error('Invalid classic policy response');
-    } catch {
-      throw new PreflightError('PROTECTION_UNVERIFIABLE', 'Cannot inspect rulesets and classic branch protection; check repository plan and rule-read permissions');
+    } catch (error) {
+      if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
+      throw new PreflightError('PROTECTION_UNVERIFIABLE', 'Cannot inspect rulesets and classic branch protection; check repository plan and rule-read permissions', error instanceof PreflightError ? error.detail : undefined);
     }
     if (rules.some(rule => record(rule).type === 'pull_request')) {
       throw new PreflightError('NATIVE_REVIEW_UNAVAILABLE', 'Feature-branch pull-request policy needs verified native review/check capabilities; same-author internal review cannot approve on GitHub; this policy is not supported yet');
