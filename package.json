@@ -10,7 +10,8 @@
     "test": "node tests/run-acceptance.mjs",
     "test:execution": "node tests/run-execution.mjs",
     "test:ticket-faults": "node tests/run-ticket-faults.mjs",
-    "test:integration": "node tests/run-integration.mjs"
+    "test:integration": "node tests/run-integration.mjs",
+    "test:scheduling": "node tests/run-scheduling.mjs"
   },
   "peerDependencies": { "@earendil-works/pi-coding-agent": "*" },
   "devDependencies": {

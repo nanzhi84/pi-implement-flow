@@ -1,5 +1,5 @@
 import { PreflightError } from './contract.ts';
-import { ensureDraftTotal, type ExecutionInput, type TicketResult } from './execution.ts';
+import { ensureDraftTotal, type ExecutionInput, type Submission } from './execution.ts';
 import { ticketGate, ReviewBlocked, type GateEvidence, type Versions } from './gate.ts';
 import { GitHub } from './github.ts';
 import { Remote, type PullRequest } from './remote.ts';
@@ -7,6 +7,10 @@ import { reviewBlockerComment } from './review.ts';
 import { git } from './process.ts';
 import { requireRemoteHead, remoteHead } from './ticket-workspace.ts';
 
+export interface Delivery {
+  ticket: number; pr: PullRequest; H: string; B: string; C: string; M: string; scopeDigest: string;
+  evidence: { candidate: GateEvidence; actual: GateEvidence; index: string };
+}
 export interface IntegrationFacts {
   ticket: number; M: string; phase: 'merged-unaccepted' | 'closure-pending' | 'closed-unaccepted' | 'delivered';
 }
@@ -23,8 +27,8 @@ function evidenceText(evidence: GateEvidence) {
   return `- ${evidence.phase}: \`${evidence.codeSha}\` — ${evidence.url}\n  SHA256: \`${evidence.sha256}\``;
 }
 
-export async function integrateTicket(input: ExecutionInput, submitted: TicketResult,
-  onFacts: (facts: IntegrationFacts) => void): Promise<TicketResult> {
+export async function integrateTicket(input: ExecutionInput, submitted: Submission, expectedFeatureHead: string,
+  onFacts: (facts: IntegrationFacts) => void): Promise<Delivery> {
   if (!submitted.pr) throw new PreflightError('PR_REQUIRED', 'A Ticket PR is required before integration');
   const ticket = input.plan.tickets.find(item => item.issue.number === submitted.number);
   if (!ticket) throw new PreflightError('PLAN_INVALID', 'Submitted Ticket is outside the approved plan');
@@ -33,8 +37,8 @@ export async function integrateTicket(input: ExecutionInput, submitted: TicketRe
   const github = await GitHub.fromOrigin(cwd);
   const H = submitted.pr.head.sha;
   const B = await remoteHead(cwd, input.feature);
-  if (!B || B !== input.base) throw new PreflightError('REMOTE_DRIFT', 'Feature changed outside this single-Ticket controller; preserve work and reconcile');
-  await input.assertScope();
+  if (!B || B !== expectedFeatureHead) throw new PreflightError('REMOTE_DRIFT', 'Feature changed outside the accepted integration chain; preserve work and reconcile');
+  await input.scope.assert();
   await github.inspectProtection(input.feature);
   await remote.requireMergeStrategy();
   const before = await remote.pull(submitted.pr.number);
@@ -61,13 +65,13 @@ export async function integrateTicket(input: ExecutionInput, submitted: TicketRe
     }
   };
   const candidate = await reviewedGate(versions, 'candidate');
-  await input.assertScope();
+  await input.scope.assert();
   await requireRemoteHead(cwd, input.feature, B);
   let latest = await remote.pull(before.number);
   expectedPull(latest, input, ticket.issue.number, H);
   if (latest.merged || latest.state !== 'open' || latest.base.sha !== B) throw new PreflightError('EVIDENCE_STALE', 'PR no longer matches the validated candidate');
   if (latest.draft) latest = await remote.ready(latest.number);
-  await input.assertScope();
+  await input.scope.assert();
   await github.inspectProtection(input.feature);
   await remote.requireMergeStrategy();
   latest = await remote.pull(before.number);
@@ -90,11 +94,11 @@ export async function integrateTicket(input: ExecutionInput, submitted: TicketRe
       throw new PreflightError('INTEGRATION_DRIFT', 'Remote merge happened but its parents/tree differ from the verified candidate; no rollback, closure or downstream release');
     }
     signal.throwIfAborted();
-    await input.assertScope();
+    await input.scope.assert();
     const total = await ensureDraftTotal(input);
     if (!total) throw new PreflightError('DELIVERY_NO_DIFF', 'Merged result has no effective main difference; preserve it and request a decision');
     const actual = M === C ? candidate : await reviewedGate({ ...versions, M }, 'actual');
-    await input.assertScope();
+    await input.scope.assert();
     await requireRemoteHead(cwd, input.feature, M);
     const actualPr = await remote.pull(before.number);
     if (!actualPr.merged || actualPr.merge_commit_sha !== M || actualPr.head.sha !== H) throw new PreflightError('REMOTE_DRIFT', 'Merged PR no longer matches delivery evidence');
@@ -105,24 +109,25 @@ export async function integrateTicket(input: ExecutionInput, submitted: TicketRe
       + `H: \`${H}\`\nB: \`${B}\`\nC: \`${C}\`\nM: \`${M}\`\nScope: \`${input.scopeDigest}\`\n\n`
       + `${evidenceText(candidate)}\n${M !== C ? evidenceText(actual) : '- Candidate and actual commit identities are equal; the same evidence applies.'}\n\n`
       + 'Actual integration and independent gates verified. Closure will be read back before this Ticket can release downstream work.');
-    await input.assertScope();
+    await input.scope.assert();
     await requireRemoteHead(cwd, input.feature, M);
     await remote.comment(totalPr.number, `Ticket #${ticket.issue.number}: ${actualPr.html_url}\n\n`
       + `Actual integration: \`${M}\`\nDelivery index: ${delivery.html_url}\n\n`
       + `${evidenceText(candidate)}\n${M !== C ? evidenceText(actual) : '- Candidate and actual commit identities are equal.'}\n\n`
       + 'This total PR remains Draft; full-Spec acceptance and final readiness are still required.');
-    await input.assertScope();
+    await input.scope.assert();
     await requireRemoteHead(cwd, input.feature, M);
     facts = { ...facts, phase: 'closure-pending' }; onFacts(facts);
-    await remote.closeIssue(ticket.issue.number);
+    await input.scope.confirmClosure(ticket.issue.number, () => remote.closeIssue(ticket.issue.number));
     facts = { ...facts, phase: 'closed-unaccepted' }; onFacts(facts);
     // GitHub has no transaction spanning scope, branch and Issue state. Detect
     // external writes after closure too; never pretend an applied closure vanished.
-    await input.assertScope();
+    await input.scope.assert();
     await requireRemoteHead(cwd, input.feature, M);
     facts = { ...facts, phase: 'delivered' }; onFacts(facts);
     ctx.ui.notify(`TICKET_DELIVERED: #${ticket.issue.number} ${M} ${actual.url}`, 'info');
-    return { number: ticket.issue.number, state: 'delivered', pr: actualPr };
+    return { ticket: ticket.issue.number, pr: actualPr, H, B, C, M, scopeDigest: input.scopeDigest,
+      evidence: { candidate, actual, index: delivery.html_url } };
   } catch (error) {
     ctx.ui.notify(`INTEGRATED_UNACCEPTED: Ticket #${ticket.issue.number} ${M}; ${facts.phase}; actual remote effects are preserved; no downstream release`, 'error');
     throw error;

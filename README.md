@@ -2,15 +2,18 @@
 
 A pi extension implementing [Spec #1](https://github.com/nanzhi84/pi-implement-flow/issues/1).
 
-**Current slice: T3 gated single-Ticket integration.** `/flow start` confirms the
-planned scope, executes real isolated probes and runs an implementation Agent in
-its own worktree. It commits/pushes the result and creates a Draft Ticket PR into
-the feature branch. It checks the exact GitHub merge candidate, runs behavioral
-acceptance and a fresh independent read-only review, then downloads and verifies
-the evidence before merging. A different actual merge SHA receives a full new
-gate. Verified delivery closes the Ticket; the Spec remains open and the total
-PR stays Draft. It then pauses at `scheduler-not-installed`; later slices provide
-parallel scheduling and final delivery.
+**Current slice: T4 dependency scheduling with serial gated integration.**
+`/flow start` confirms the plan, runs real isolated probes, and implements explicit
+independent Tickets in separate worktrees. The concurrency limit covers active
+project commands and Agent roles; waiting Tickets hold no compute slot. Resource
+leases span prepare through cleanup, and exclusive contracts serialize that
+whole lifecycle. Integration is serial: every Ticket is checked on the latest
+accepted feature base, with fresh candidate and actual-version gates, independent
+read-only review and downloaded evidence. Only verified actual delivery and
+completed closure unlock dependent Tickets. Local implementation questions leave
+unrelated Tickets eligible. All current Tickets delivered means
+`paused (final-acceptance-not-installed)`: the Spec stays open, total PR Draft and
+main unchanged. Automatic repair/recovery and final Spec delivery remain later slices.
 `/flow preflight` runs only the original preflight/probe path.
 
 ## Develop and use
@@ -186,3 +189,21 @@ The user authorized this repository's Ticket PRs to merge directly to main only
 after per-Ticket acceptance and independent review. This development workflow
 **does not change the product invariant**: a running flow must never merge its
 customer project's total PR into main. The originating decisions remain on #1.
+
+## T4 scheduling acceptance
+
+Failure modes and external assertions were recorded before implementation in
+[the T4 scenarios](docs/testing/t4-scenarios.md). Run `npm run test:scheduling`
+with `RUN_GITHUB_E2E=1 PI_PROVIDER=openai PI_MODEL=gpt-6-astra` and explicit
+`PI_BIN`; the runner selects the dedicated isolated/exclusive fixture repository
+for each scenario and records its fixed baseline. `FLOW_SCHEDULING_SCENARIO`
+selects one named case. Effective localhost proxy bypass is required for the
+three controlled fixed-model scenarios and resource observer.
+
+The real OpenAI A/B→C path checks overlapping roles, actual command-owned
+loopback ports/data, exact dependency ancestry, every C/M gate and remote CLI
+behavior. Three deterministic model cases cover same-file independent Tickets
+and local ambiguity, exclusive shared resources, and latest-base semantic failure.
+Reports in `artifacts/scheduling.json` include exact source fingerprints, runtime,
+exit statuses, GitHub versions and downloaded hashes. Source/type checks or a
+skipped local run do not constitute remote acceptance.

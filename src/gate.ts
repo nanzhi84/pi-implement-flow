@@ -25,17 +25,21 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
   const approvedInstructions = input.approvedInstructions;
   const approvedContext = evidenceContext(input.repository, input.plan, ticket, contract, approvedInstructions, input.scopeDigest);
   ctx.ui.notify(`GATE_STARTED: ${phase} ${codeSha}`, 'info');
+  return input.resources.run(ticket.issue.number, phase, signal, async cleaned => {
+  const label = (kind: string) => ({ ticket: ticket.issue.number, phase, kind, codeSha });
   const workspace = await createProbe(cwd, codeSha, signal);
   const reportPath = join(workspace.resources, 'gate.json');
   const env = { FLOW_RESOURCE_DIR: workspace.resources, FLOW_CODE_SHA: codeSha, FLOW_REPOSITORY: input.repository,
-    FLOW_REPORT: reportPath, FLOW_STAGE: phase };
+    FLOW_REPORT: reportPath, FLOW_STAGE: phase, FLOW_TICKET: String(ticket.issue.number) };
   if (digest(await readContract(workspace.cwd)) !== digest(contract)
     || digest(await instructionSnapshot(workspace.cwd, contract)) !== digest(approvedInstructions)) {
     throw new PreflightError('SCOPE_CHANGED', 'Candidate changed approved commands or role instructions; preserve work and request a scope decision');
   }
   const execute = async (name: keyof typeof contract.commands, cancellable = true) => {
-    const output = await run(contract.commands[name], { cwd: workspace.cwd, env,
+    const command = () => run(contract.commands[name], { cwd: workspace.cwd, env,
       signal: cancellable ? signal : undefined, timeoutMs: contract.commandTimeoutMs, label: `${phase} ${name}` });
+    const output = name === 'cleanup' ? await input.activities.runCleanup(label(name), command)
+      : await input.activities.run(label(name), signal, command);
     await workspace.check();
     return output;
   };
@@ -48,14 +52,14 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
     await execute('prepare');
     await execute('check');
     acceptance = acceptanceResult(await execute('accept'));
-    review = await runReview({ cwd: workspace.cwd, resources: workspace.resources, environment: env,
+    review = await input.activities.run(label('review'), signal, () => runReview({ cwd: workspace.cwd, resources: workspace.resources, environment: env,
       contract, ctx, signal, codeSha, scopeDigest: input.scopeDigest,
       prompt: JSON.stringify({ task: 'Independently review the exact integration result against its approved scope. Inspect actual code and the supplied diff. Explicitly inspect changed commands, removed assertions and reduced coverage. Never accept an implementation summary as approval. A new behavior test may extend coverage; weakened existing acceptance requires an approved scope change. Report correctness, security, explicit-spec or mandatory-standard defects with basis, impact and a verifiable resolution. Style preferences are suggestions only.',
         spec: input.plan.spec, ticket, approvedChanges: [], versions, phase, codeSha, scopeDigest: input.scopeDigest,
         commandSource: '.pi/flow.json', commands: contract.commands, acceptance,
         instructions: approvedInstructions, sourceDiff: diff, implementationEvidence,
       }, null, 2),
-    });
+    }));
     await workspace.check();
     if (review.blockers.length) throw new ReviewBlocked(review);
   } catch (error) { failure = error; }
@@ -66,6 +70,7 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
     if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
     throw new PreflightError('CLEANUP_FAILED', 'Gate cleanup failed; preserve candidate and resources; no integration authority');
   }
+  cleaned();
   if (failure) throw failure;
   signal.throwIfAborted();
   const report = { schema: 3, generator: 'pi-implement-flow/ticket-gate-v1', kind: 'ticket-gate', phase,
@@ -86,4 +91,5 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
   await workspace.remove();
   ctx.ui.notify(`GATE_PASSED: ${phase} ${codeSha} ${evidence.url}`, 'info');
   return { ...evidence, phase, versions, review: review! };
+  });
 }
