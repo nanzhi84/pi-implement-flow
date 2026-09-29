@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
 import { PreflightError, type Contract } from './contract.ts';
 import { publishEvidence } from './evidence.ts';
+import { evidencePath } from './evidence-location.ts';
 import { run } from './process.ts';
 import { createProbe } from './workspace.ts';
 
@@ -22,11 +22,11 @@ export async function probeProject(
   cwd: string, repository: string, sha: string, scopeDigest: string, contract: Contract, signal: AbortSignal,
 ): Promise<string> {
   const workspace = await createProbe(cwd, sha, signal);
-  const reportPath = join(workspace.resources, 'preflight.json');
+  const reportPath = evidencePath(workspace.resources, contract, 'preflight.json');
   const env = { FLOW_RESOURCE_DIR: workspace.resources, FLOW_CODE_SHA: sha, FLOW_REPOSITORY: repository, FLOW_REPORT: reportPath };
-  const execute = async (phase: keyof Contract['commands'], cancellable = true) => {
+  const execute = async (phase: keyof Contract['commands'], cancellable = true, extraEnvironment: NodeJS.ProcessEnv = {}) => {
     const output = await run(contract.commands[phase], {
-      cwd: workspace.cwd, env, timeoutMs: contract.commandTimeoutMs,
+      cwd: workspace.cwd, env: { ...env, ...extraEnvironment }, timeoutMs: contract.commandTimeoutMs,
       signal: cancellable ? signal : undefined, label: phase, operation: phase,
     });
     await workspace.check();
@@ -59,7 +59,8 @@ export async function probeProject(
     acceptance, cleanup: 'passed', retentionDays: contract.artifacts.retentionDays,
   };
   const evidence = await publishEvidence({ cwd, repository, codeSha: sha, contract,
-    path: reportPath, report, publish: () => execute('publish'), signal });
+    path: reportPath, report, publish: environment => execute('publish', true, environment), signal });
+  signal.throwIfAborted();
   await workspace.remove();
   return evidence.url;
 }

@@ -7,7 +7,7 @@ import { GitHub } from './github.ts';
 import { readPlan } from './plan.ts';
 import { digest, probeProject } from './probe.ts';
 import { baseline } from './workspace.ts';
-import { requireRemoteHead } from './ticket-workspace.ts';
+import { requireRemoteHead } from './remote-git.ts';
 import { type TicketResult } from './execution.ts';
 import { type IntegrationFacts } from './integration.ts';
 import { scheduleTickets } from './scheduler.ts';

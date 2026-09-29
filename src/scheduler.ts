@@ -3,7 +3,7 @@ import { submitTicket, type ExecutionInput, type Submission, type TicketResult }
 import { integrateTicket, type Delivery, type IntegrationFacts } from './integration.ts';
 import { git } from './process.ts';
 import { SerialControl } from './slots.ts';
-import { pushNew, requireRemoteHead } from './ticket-workspace.ts';
+import { pushExpected, requireRemoteHead } from './remote-git.ts';
 import type { PullRequest } from './remote.ts';
 
 export async function scheduleTickets(input: ExecutionInput, update: (ticket: TicketResult) => void,
@@ -16,7 +16,7 @@ export async function scheduleTickets(input: ExecutionInput, update: (ticket: Ti
   let acceptedFeatureHead = input.initialMainSha;
   let firstFailure: unknown;
   await input.scope.assert();
-  await pushNew(cwd, acceptedFeatureHead, input.feature, signal);
+  await pushExpected(cwd, acceptedFeatureHead, input.feature, undefined, signal);
   const launch = (ticket: typeof plan.tickets[number]) => {
     const number = ticket.issue.number;
     started.add(number);

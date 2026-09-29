@@ -13,7 +13,8 @@ import type { ImplementationEvidence } from './mutation-evidence.ts';
 import type { ApprovedInstruction } from './evidence-context.ts';
 import { digest } from './probe.ts';
 import { Remote, type PullRequest } from './remote.ts';
-import { createTicketWorkspace, checkTicketWorkspace, commitTicket, pushNew, requireRemoteHead } from './ticket-workspace.ts';
+import { createTicketWorkspace, checkTicketWorkspace, commitTicket } from './ticket-workspace.ts';
+import { pushExpected, requireRemoteHead } from './remote-git.ts';
 
 export interface ExecutionInput {
   cwd: string; repository: string; feature: string; initialMainSha: string; plan: Plan;
@@ -73,7 +74,7 @@ export async function submitTicket(input: ExecutionInput, ticket: TicketPlan, ba
     return { number: ticket.issue.number, state: 'blocked' };
   }
   await input.scope.assert();
-  await pushNew(workspace.cwd, sha, workspace.branch, signal);
+  await pushExpected(workspace.cwd, sha, workspace.branch, undefined, signal);
   signal.throwIfAborted();
   return { number: ticket.issue.number, ticket, startedFrom: base, head: sha, implementationContextDigest: digest(prompt),
     ownedWorkspace: { cwd: workspace.cwd, resources: workspace.resources, branch: workspace.branch, expectedHead: sha },

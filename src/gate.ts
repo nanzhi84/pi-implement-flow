@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { evidencePath } from './evidence-location.ts';
 import { instructionSnapshot } from './agents.ts';
 import { PreflightError, readContract } from './contract.ts';
 import { publishEvidence, type Evidence } from './evidence.ts';
@@ -29,15 +29,15 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
   return input.resources.run(ticket.issue.number, phase, signal, async cleaned => {
   const label = (kind: string) => ({ ticket: ticket.issue.number, phase, kind, codeSha });
   const workspace = await createProbe(cwd, codeSha, signal);
-  const reportPath = join(workspace.resources, 'gate.json');
+  const reportPath = evidencePath(workspace.resources, contract, 'gate.json');
   const env = { FLOW_RESOURCE_DIR: workspace.resources, FLOW_CODE_SHA: codeSha, FLOW_REPOSITORY: input.repository,
     FLOW_REPORT: reportPath, FLOW_STAGE: phase, FLOW_TICKET: String(ticket.issue.number) };
   if (digest(await readContract(workspace.cwd)) !== digest(contract)
     || digest(await instructionSnapshot(workspace.cwd, contract)) !== digest(approvedInstructions)) {
     throw new PreflightError('SCOPE_CHANGED', 'Candidate changed approved commands or role instructions; preserve work and request a scope decision');
   }
-  const execute = async (name: keyof typeof contract.commands, cancellable = true) => {
-    const options = { cwd: workspace.cwd, env, operation: name, signal: cancellable ? signal : undefined,
+  const execute = async (name: keyof typeof contract.commands, cancellable = true, extraEnvironment: NodeJS.ProcessEnv = {}) => {
+    const options = { cwd: workspace.cwd, env: { ...env, ...extraEnvironment }, operation: name, signal: cancellable ? signal : undefined,
       timeoutMs: contract.commandTimeoutMs, label: `${phase} ${name}` };
     const command = () => name === 'check' || name === 'accept'
       ? runReportedCommand(name, codeSha, contract.commands[name], options)
@@ -96,7 +96,7 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
   // Once publication begins, let it finish and verify bytes even if a pause arrives.
   // It is one trusted project operation, not permission to start the next operation.
   const evidence = await publishEvidence({ cwd, repository: input.repository, codeSha, contract, path: reportPath, report,
-    beforePublish: () => signal.throwIfAborted(), publish: () => execute('publish', false) });
+    beforePublish: () => signal.throwIfAborted(), publish: environment => execute('publish', false, environment) });
   signal.throwIfAborted();
   await workspace.remove();
   ctx.ui.notify(`GATE_PASSED: ${phase} ${codeSha} ${evidence.url}`, 'info');
