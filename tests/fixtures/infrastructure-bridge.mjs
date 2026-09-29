@@ -6,7 +6,8 @@ import { repository, assertRepositoryIdentity } from '../acceptance-repository.m
 export default function infrastructureBridge(pi) {
   const key = Symbol.for('pi-flow.test.infrastructure-bridge.v1');
   const state = globalThis[key] ??= { spawn: childProcess.spawn, attempts: 0, applied: 0, configured: false };
-  const modes = ['github-eof', 'github-permanent', 'gate-behavior', 'gate-infrastructure', 'gate-configuration',
+  const modes = ['github-eof', 'github-permanent', 'github-certificate-expired', 'github-certificate-untrusted', 'github-tls-unknown',
+    'gate-behavior', 'gate-infrastructure', 'gate-configuration',
     'gate-unclassified', 'gate-invalid-report', 'gate-success-contradiction', 'gate-timeout-report'];
   pi.registerCommand('fixture-infrastructure', { handler: async (text, ctx) => {
     const config = JSON.parse(text);

@@ -6,7 +6,8 @@ import { homedir } from 'node:os';
 import { repository } from './acceptance-repository.mjs';
 
 const names = ['model-transient', 'model-exhausted', 'model-permanent', 'model-quota', 'model-invalid', 'model-cancel-retry',
-  'github-eof', 'github-permanent', 'gate-behavior', 'gate-infrastructure', 'gate-configuration', 'gate-unclassified',
+  'github-eof', 'github-permanent', 'github-certificate-expired', 'github-certificate-untrusted', 'github-tls-unknown',
+  'gate-behavior', 'gate-infrastructure', 'gate-configuration', 'gate-unclassified',
   'gate-invalid-report', 'gate-success-contradiction', 'gate-timeout-report'];
 const selected = process.env.FLOW_INFRASTRUCTURE_SCENARIO;
 if (selected && !names.includes(selected)) throw new Error('Unsupported FLOW_INFRASTRUCTURE_SCENARIO');
