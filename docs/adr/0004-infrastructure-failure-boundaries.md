@@ -6,6 +6,8 @@
 
 模型、远端、项目命令和行为缺陷使用不同的可信边界。`FailureDetail` 只包含操作、类别、原因及可选数字状态、退出码、信号、CLI 启动事实。最多在内存检查 16 KiB 诊断文本，原始错误、正文、路径、鉴权头和 `cause` 不进入该结构。已知暂时问题可以标记 `transient`，这只是诊断，不能授权重试、修复、合入或释放 ownership。无法分类时明确为 unknown。
 
+常见明确证书过期、撤销、主机名或信任链配置错误归为 configuration/tls，transient=false。宽泛 TLS handshake、SSL_ERROR_SYSCALL 或没有明确原因的证书错误归为 unknown/tls，不声明可重试。单次传输异常不能证明服务瞬断；此分类不会改变 SDK 的批准恢复策略或授权外层重放。
+
 唯一底层命令执行器 `captureCommand` 保留原始 stdout Buffer。正常数值退出才返回；取消、超时、信号、输出超限、未收敛进程优先抛错，即使此前 stdout 已给出合法行为失败报告。`runBytes` 和 `run` 复用该执行器。`commandStart: not-started` 只表示同步启动异常或无 pid/无 spawn 事件的明确启动失败；`started` 不证明远端请求已发送，更不证明远端副作用已落地。
 
 每个角色仍只有一个 `session.prompt`。已批准的 SDK `retry.enabled/maxRetries` 负责其恢复，provider 重试为零，不叠加控制器重启循环。真实宿主 pi 0.99.1 的 SDK 会排除配额/计费类永久失败，依有限策略恢复支持的暂时错误，并让取消打断退避。扩展不重新实现其重试规则。每次 retry 通知只有安全分类；耗尽或永久失败保留现场并结束当前操作。不保存重试计数，不创建修复 Ticket。开发类型依赖仍为 0.87.1，实际验收报告分别记录宿主 CLI、宿主 SDK 与本地依赖版本。

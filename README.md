@@ -198,10 +198,11 @@ FLOW_ACCEPTANCE_REPOSITORY=nanzhi84/pi-implement-flow-acceptance \
 RUN_GITHUB_E2E=1 npm run test:infrastructure
 ```
 
-Fifteen cases use real pi, the installed SDK, GitHub and project commands with
+Eighteen cases use real pi, the installed SDK, GitHub and project commands with
 explicit loopback HTTP or CLI fault injection. They check SDK-only bounded
 recovery, exhausted/permanent failures, cancellation during retry, safe remote
-diagnostics and strict check/accept failure classification. Select one fresh
+diagnostics, permanent certificate configuration versus unclassified TLS, and
+strict check/accept failure classification. Select one fresh
 case with `FLOW_INFRASTRUCTURE_SCENARIO`; the runner records skips and never
 retries an individual failed operation. `artifacts/infrastructure.json` and
 timestamped copies bind final test exit, source SHA/content, host versions and
