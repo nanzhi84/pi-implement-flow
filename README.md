@@ -2,16 +2,23 @@
 
 A pi extension implementing [Spec #1](https://github.com/nanzhi84/pi-implement-flow/issues/1).
 
-**Current slice: T2 single-Ticket implementation.** `/flow start` confirms the
+**Current slice: T3 gated single-Ticket integration.** `/flow start` confirms the
 planned scope, executes real isolated probes and runs an implementation Agent in
 its own worktree. It commits/pushes the result and creates a Draft Ticket PR into
-the feature branch, then pauses at `gates-not-installed`. The Ticket stays open;
-T3 and later provide gates, integration, parallel scheduling and final delivery.
+the feature branch. It checks the exact GitHub merge candidate, runs behavioral
+acceptance and a fresh independent read-only review, then downloads and verifies
+the evidence before merging. A different actual merge SHA receives a full new
+gate. Verified delivery closes the Ticket; the Spec remains open and the total
+PR stays Draft. It then pauses at `scheduler-not-installed`; later slices provide
+parallel scheduling and final delivery.
 `/flow preflight` runs only the original preflight/probe path.
 
 ## Develop and use
 
 Requires macOS/Linux, Node.js 24+, npm, Git, authenticated `gh` and pi 0.87.1.
+The development SDK is locked to 0.87.1. Real OpenAI acceptance uses installed pi
+0.99.1 with `PI_PROVIDER=openai PI_MODEL=gpt-6-astra`; `PI_BIN` explicitly selects
+that CLI. The runner records both host and project SDK versions.
 
 ```sh
 npm ci
@@ -124,8 +131,8 @@ RUN_GITHUB_E2E=1 npm run test:ticket-faults
 ```
 
 This creates new synthetic Spec/native Ticket fixtures in the acceptance repository.
-Real model scenarios verify the delivered PR's actual greeting CLI and the no-PR
-ambiguity path. Deterministic loopback-model scenarios verify no-difference and
+The successful T2 PR path is extended by the T3 real integration scenario. The
+execution suite retains real-model ambiguity. Fixed loopback models verify no-difference and
 cancelled/late-result boundaries through real pi and SDK calls. See
 [scenario contract](docs/testing/t2-scenarios.md) and `artifacts/execution.json` for
 selected coverage, source version, assertions and retained remote links. Failed
@@ -134,8 +141,8 @@ Use the documented HTTP/1.1 environment above if the proxy drops HTTP/2 requests
 The fault suite additionally verifies Ticket prepare/cleanup source drift and a
 successful remote push whose CLI response is lost; it uses explicitly loaded
 test process wrappers and a fixed loopback model, not real-model quality evidence.
-The npm scripts select the repository's locked pi version; a direct `node` command
-may resolve a different globally installed pi, which is recorded separately.
+The npm scripts default to the repository's locked pi version; `PI_BIN` explicitly
+selects another installed CLI, which is recorded separately.
 
 Role tools are restricted to their worktree; `bash` accepts only approved command
 names `prepare`, `check`, `accept`. Agents cannot use the supported tools to commit,
@@ -144,6 +151,34 @@ ordinary OS processes, so this is not a credential sandbox. The controller prepa
 and cleans each Ticket's resource directory and checks actual branch/HEAD, contract
 and instructions before delivery. Unknown remote writes or unverified stopping
 retain ownership and require reconciliation; this slice does not auto-resume them.
+
+## Integration acceptance
+
+```sh
+PI_BIN=/path/to/openai-capable/pi PI_PROVIDER=openai PI_MODEL=gpt-6-astra \
+RUN_GITHUB_E2E=1 npm run test:integration
+```
+
+The real-model case implements the CLI behavior and reviews C and actual M in
+separate conversations. Nine fixed loopback-model cases exercise acceptance
+failure, self-approval/weakening rejection, damaged evidence, H/B drift, failed
+actual-M acceptance, complete multilingual actual-M review findings at the response
+byte limit, oversized-review refusal before publication, and an actual merge against
+a racing base. Review JSON and combined findings are bounded to 48000 UTF-8 bytes;
+the complete comment also has a 60000-byte defensive ceiling. Findings are never
+silently truncated. See
+[T3 scenarios](docs/testing/t3-scenarios.md) and `artifacts/integration.json`.
+The required-review fixture proves safe refusal, not protected-PR success.
+
+If GitHub reads fail through the environment proxy, a process-scoped diagnostic
+run may add `NO_PROXY=api.github.com,github.com,.githubusercontent.com` and matching
+`no_proxy`, alongside the HTTP/1.1 variables above. Evidence records this route
+selection. It does not change OpenAI's route or diagnose the proxy's cause.
+
+GitHub cannot atomically compare the expected base in its merge request. A base
+race may already have merged before detection. Such a result is reported as
+`integrated-unaccepted`; its actual commits and pending or applied Issue closure
+are preserved, ownership is retained, and no downstream work is released.
 
 ## Development delivery
 

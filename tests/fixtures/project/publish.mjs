@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { basename } from 'node:path';
 
 // Project-owned publisher. Content-addressed remote identity, never blind retries.
 const repository = process.env.FLOW_REPOSITORY;
@@ -10,7 +11,8 @@ if (!repository || !sha || !report) throw new Error('Publishing environment inco
 const content = await readFile(report);
 const digest = createHash('sha256').update(content).digest('hex');
 const tag = `flow-evidence-${digest}`;
-const filename = 'preflight.json';
+const filename = basename(report);
+if (!/^[A-Za-z0-9._-]+$/.test(filename)) throw new Error('Unsafe evidence asset name');
 function gh(args) {
   return execFileSync('gh', args, { encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] });
 }
@@ -34,7 +36,7 @@ if (!remote) {
 }
 if (remote.target_commitish !== sha) throw new Error('Release version mismatch');
 if (!remote.assets.some(asset => asset.name === filename)) {
-  try { gh(['release', 'upload', tag, `${report}#${filename}`, '--repo', repository]); }
+  try { gh(['release', 'upload', tag, report, '--repo', repository]); }
   catch { /* reconcile the exact content-addressed asset, never overwrite or retry */ }
 }
 const fetched = gh(['release', 'download', tag, '--repo', repository, '--pattern', filename, '--output', '-']);

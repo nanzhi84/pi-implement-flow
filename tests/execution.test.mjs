@@ -2,55 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { access, readFile, rm, symlink, writeFile } from 'node:fs/promises';
-import { api, fixture, fixedProvider, git, persist, repository, runGreeting, waitFor } from './execution-fixture.mjs';
+import { api, fixture, fixedProvider, persist, repository, waitFor } from './execution-fixture.mjs';
 
 const selected = process.env.FLOW_EXECUTION_SCENARIO;
 const skip = name => process.env.RUN_GITHUB_E2E !== '1' || (selected && selected !== name);
 
 // These assertions were specified in docs/testing/t2-scenarios.md before execution code.
-test('real selected model delivers a business change in an unmerged Ticket PR', { skip: skip('success'), timeout: 1_200_000 }, async t => {
-  const f = await fixture(t, 'success');
-  assert.deepEqual(runGreeting(f.project, '   '), { exitCode: 0, stdout: 'Hello,    !\n' }, 'baseline must exhibit the behavior that this Ticket fixes');
-  let confirmation;
-  const pi = await f.open({ onConfirm: event => { confirmation = event.message; return true; } });
-  const output = await pi.flow(`start ${f.spec.number}`, true);
-  assert.equal(typeof confirmation, 'string', output);
-  assert.match(confirmation, /whitespace/);
-  assert.match(output, new RegExp(`AGENT_STARTED: Ticket #${f.ticket.number}`));
-  assert.match(output, /TICKET_PR: https:\/\/github\.com\//);
-  assert.match(await pi.flow('status'), /paused.*gates-not-installed/);
-  const pulls = f.pulls();
-  assert.equal(pulls.length, 1, 'one independent Ticket PR must exist');
-  const pr = pulls[0];
-  assert.equal(pr.state, 'open');
-  assert.equal(pr.merged_at, null);
-  assert.equal(pr.base.ref, f.feature);
-  assert.notEqual(pr.head.ref, f.feature);
-  assert.notEqual(pr.head.ref, 'main');
-  assert.equal(pr.base.sha, f.baseline, 'feature branch remains at its recorded baseline until gates exist');
-  assert.notEqual(pr.head.sha, f.baseline, 'Ticket PR has a genuine implementation commit');
-  assert.ok(pr.body.includes(`#${f.ticket.number}`) || pr.body.includes(f.ticket.html_url), 'Ticket PR links its Ticket');
-  assert.ok(pr.body.includes(`#${f.spec.number}`) || pr.body.includes(f.spec.html_url), 'Ticket PR links its Spec');
-  const mergedTotals = api(`repos/${repository}/pulls?state=all&head=${encodeURIComponent(`nanzhi84:${f.feature}`)}&base=main`);
-  assert.equal(mergedTotals.length, 0, 'no empty total PR before any feature integration');
-  git(f.project, 'fetch', '--quiet', 'origin', pr.head.ref);
-  assert.equal(git(f.project, 'rev-parse', 'FETCH_HEAD'), pr.head.sha, 'verify fetched remote Ticket commit');
-  const verification = join(f.project, '..', 'verify-remote-ticket');
-  git(f.project, 'worktree', 'add', '--quiet', '--detach', verification, pr.head.sha);
-  assert.deepEqual(runGreeting(verification, 'Ada'), { exitCode: 0, stdout: 'Hello, Ada!\n' });
-  assert.deepEqual(runGreeting(verification, ' Ada '), { exitCode: 0, stdout: 'Hello,  Ada !\n' });
-  for (const name of ['   ', '\t', '\t \t', 'Ada\nLovelace']) {
-    assert.deepEqual(runGreeting(verification, name), { exitCode: 2, stdout: '' });
-  }
-  assert.deepEqual(runGreeting(verification), { exitCode: 2, stdout: '' });
-  assert.deepEqual(git(verification, 'diff', '--name-only', f.baseline, pr.head.sha).split('\n'), ['app.mjs'], 'model stays in assigned implementation scope');
-  f.verifyInvariants();
-  f.pass({
-    ticketPr: pr.html_url, featureBranch: f.feature, ticketBranch: pr.head.ref, remoteCodeSha: pr.head.sha,
-    assertions: ['real model dispatched', 'remote PR base/head verified', 'remote code rejects whitespace-only name', 'Ada and meaningful whitespace preserved', 'missing/newline name rejected', 'only app.mjs changed', 'main unchanged', 'Issues open', 'PR unmerged', 'paused before gates', 'no empty total PR'],
-  });
-});
-
+// The former success case is covered by integration.test.mjs real-integration.
+// Its baseline, PR identity/context, business CLI, scope and main assertions are retained there.
 test('real selected model stops on ambiguity before editing and records the question', { skip: skip('ambiguity'), timeout: 1_200_000 }, async t => {
   const f = await fixture(t, 'ambiguity');
   const pi = await f.open();

@@ -1,10 +1,12 @@
 # T3 外部行为验收约定（实现前）
 
-状态：场景设计，尚未实现或执行。对应 Issue #4；#3 交付后才开始 T3 实施。本文不得作为通过记录。
+状态：实现前定义的场景约定，现已提供测试入口。对应 Issue #4；实际执行以绑定提交的验收报告为准。本文不得作为通过记录。
 
 协议见 [ADR 0003](../adr/0003-gated-integration.md)。通过真实 pi `/flow start SPEC` 入口驱动隔离的合成 GitHub 项目，观察实际分支、Issues、PR、项目行为和远端工件。不使用模块内部结构测试替代这些断言，不修改生产数据或源仓库 main。
 
 ## 正常交付路径
+
+新建合成 Spec/Ticket 采用唯一规则：name 缺失、含 CR/LF，或 JavaScript `name.trim() === ''` 时，以退出码 2 和空 stdout 拒绝；否则接受并在既有问候语中完整保留该 name 的原始内容。`trim` 仅按 `String.trim` 语义判空，不用于输出规范化。空格、TAB、form feed、vertical tab、NBSP（U+00A0）及 U+2003 均有真实 CLI 断言；既有缺少名字、含 CR/LF 的拒绝断言保留。本次只明确新 fixture 输入，不修改历史 Issues，也不将它归因为旧审查阻塞原因。
 
 1. 使用真实实现模型与独立审查上下文执行一个可见的小功能；从 GitHub Ticket PR 获取实际 H，并确认目标是本 Spec 的功能分支。
 2. C 的远端工件可下载且摘要匹配，包含实际项目命令、数据/环境前提、通过的非空行为断言、H/B/C 与有效需求摘要；独立审查记录对应版本并表明无阻断意见。
@@ -21,11 +23,14 @@
 | 实现者自我批准 | 实现输出或讨论评论宣称已批准，独立 reviewer 拒绝或缺失 | 自我声明不获得合并资格；不能替代独立审查或原生 required review |
 | reviewer 越权写入 | 测试专用模型请求 edit/write/任意 shell | 请求被拒绝，候选代码不变，没有新增合并资格 |
 | 验收弱化 | 变更尝试删除断言、缩小覆盖或改变检查命令 | review/契约检查阻断，原验收约定不被悄悄替换 |
-| 工件缺失、损坏或过期 | 发布失败、下载内容摘要不符，或提交/范围不匹配 | 不 merge；未知发布结果保持待核对，不盲目重发 |
+| 工件缺失、损坏或过期 | 发布失败、下载内容摘要不符，或提交/范围不匹配；非法 UTF-8 字节不得经文本解码等价放行 | 不 merge；按下载原始字节核对摘要；未知发布结果保持待核对，不盲目重发 |
 | C 门禁后 H 改变 | 在最终读取前及最终读取后分别推进 Ticket head | 前者撤销旧资格；后者由 merge 的 head 条件拒绝。新 H 不能复用旧 C 证据 |
 | C 门禁后 B 改变且可提前观察 | merge 请求前推进功能分支 | 不发送 merge，保留现场并报告外部写入，不自动接纳 B′ |
 | 最后读取后发生 B 竞态 | 最后读取完成后、真实 merge 前由测试外部写入者推进 B | 若远端实际合入，双 parent 检查发现偏差；显示 integrated-unaccepted，Ticket open，不解锁、不继续集成。不得声称 merge 已被阻止 |
 | C/M tree 相同但 M 验收失败 | 对实际 M 的命令执行边界注入确定性失败，并标明注入边界 | C 成功不能放行 M；保留已 merged 事实、Ticket open、总 PR Draft，停止后续自动化 |
+| 实际 M 的独立审查阻断项丢失 | 候选 C review 通过并真实 merge；M≠C 后固定 reviewer 返回带完整依据、影响及验证条件的阻塞项 | Ticket PR 评论持久化 phase=actual、精确 M/scope 及完整 category/basis/impact/verification，通知给出该评论链接；保留 merged 事实和功能分支 M，Ticket open、总 PR Draft、无关闭请求，C 工件不能替代失败的 M 审查 |
+| 合法审查意见超出单评论容量 | 既有实际 M 审查场景返回恰好 48000 UTF-8 bytes 的多字节 JSON，保留完整可操作的意见字段 | 带 phase/M/scope 的单条真实 GitHub 评论完整保留全部意见，UTF-8 字节数不超过 60000；不截断、不转成未知远端结果 |
+| 总响应以字符计数绕过字节预算 | 新增 review-response-too-large：候选 reviewer 返回 48001 UTF-8 bytes，但 JS 字符数及每字段均在旧上限内 | 提交评论前 AGENT_RESULT_INVALID，无 findings 评论、无 merge/close 请求、无 C 资格；保留 Ticket open 和失败现场，不能把无效响应当作空 blocker |
 | merge 成功但响应丢失 | 真实服务端已执行，客户端结果被测试边界丢弃 | 不重 merge，不关票、不解锁；结果未核对时保留控制权和现场。自动接续不是本票前提 |
 | M 验收期间范围或 feature 改变 | 验收执行中追加未批准范围变化或外部写入 | 当前放行失效；不把旧工件用于新范围，不关闭 Ticket |
 | 关票结果未知 | 真实关票响应丢失或后续核对不可用 | 区分已集成与关票待核对，不重复交付、不提前解锁 |
@@ -34,10 +39,19 @@
 
 ## 工件与可重复性
 
+实际 OpenAI 的 M 审查阻断暴露了独立的可观察缺口：候选阶段会回写完整 findings，实际阶段只报告通用错误，用户无法从 PR 找到阻塞依据和修复条件。新增 `actual-review-blockers-recorded` 先固定此行为约定，再修复统一的候选/实际审查记录路径。该场景通过真实 SDK 在候选上下文通过 review、在精确实际 M 上返回一项可追溯的合成 blocker；随后直接读取 GitHub PR 评论、Ticket、总 PR、feature 与 Git 对象，不用错误通知替代远端落盘证据。既有 `actual-merge-recheck-fails` 仍保留，因命令失败与审查 findings 持久化是不同的外部契约。
+
+PR #20 容量审查指出，旧 review 合法响应可大于单条 GitHub 评论。先明确多字节、总响应、JSON escape 与完整评论框架的边界，再把原始 JSON 和合并 blocker 文本各限制为 48000 UTF-8 bytes，最终评论限制为 60000 UTF-8 bytes，并在 prompt 中给出同一约定。恰好上限的实际 M blocker 扩展既有持久化场景；上限加一的候选响应新增独立场景，因为既有 self-approval 仍须验证有效 review 阻断与完整意见落盘。所有超限均明确拒绝，绝不截断或丢弃意见来制造通过。
+
+真实 OpenAI reviewer 暴露了测试先行的证据缺口：最终 diff 不能证明写入顺序。补充控制器实际写入证据前，先明确失败方式：无变化重写不算进展；测试占位版本不能证明最终断言先于实现；同一文件多次修改须核对完整摘要链；部分写入失败、证据容量不足、命令改变源码或链与实际 H 不符时停止；C/M 内容变化不得沿用不匹配的早期摘要。
+
+复用正常 E2E 核对 `implementationEvidence`：独立从实际 baseline/H Git blobs 验证各路径首尾与连续摘要链、变更覆盖，再断言最终 `fixture.mjs` 字节版本的受控写入先于 `app.mjs` 的首次有效变更。它只证明受控 write/edit 的字节顺序，不证明曾先运行红色测试或完整审计 OS 写入。证据作为本次门禁工件内容，不作执行账本、恢复进度或重试计数。
+
 - 每个场景使用新建的合成 Spec/native Ticket、独立分支/worktree 和隔离运行资源；外部写入者及故障桥接仅服务当前场景，并标明所属进程和资源边界。
 - 测试入口必须是真实 pi RPC。固定模型响应及传输/进程故障注入只控制可重复边界，逐项标注；正常交付保留真实模型完整路径，不把注入成功描述为真实模型质量证明。
 - runner 应独立读取 GitHub 和 Git 对象核对结果，不能仅依赖 flow 的通知、自报状态或模型摘要。
 - 每次产出可重复生成的脱敏报告：精确命令、环境与数据前提、实现仓库 SHA/dirty、合成项目 H/B/C/M、所选及跳过场景、逐项断言、最终 runner 退出结果、远端 Issue/PR/工件链接、注入边界和未验证项。
 - 最终交付证据必须绑定实际交付的代码版本；dirty 调试报告不冒充提交版本的验收结果。源码版本变化后按受影响行为重新验证。
 - 工件不得包含凭据、原始模型会话、个人路径、生产数据或未经处理的 stderr。失败现场保留；公开证据与本地私有定位信息分开。不能为清理场景删除仍需核对的成果。
-- T3 尚无可运行验收命令。实施时在本文件补充经实际验证的命令和前提，再以生成的报告记录结果；不要提前填写成功计数或链接。
+- 入口：`PI_BIN=/path/to/openai-capable/pi PI_PROVIDER=openai PI_MODEL=gpt-6-astra RUN_GITHUB_E2E=1 npm run test:integration`。`FLOW_INTEGRATION_SCENARIO` 可选择单一场景。主机 pi 0.99.1 提供当前 OpenAI 认证；开发 SDK 0.87.1 单独记录。
+- 当前最小套件为 10 个场景：real-integration、accept-failure、review-rejects-self-approval、evidence-unavailable、stale-head、stale-base、actual-merge-recheck-fails、actual-review-blockers-recorded、base-race-after-final-read、review-response-too-large；原生 required review 拒绝复用同 SHA 的 T1 测试。表中其余时序由后续生命周期/恢复 Ticket 验证，不把设计表视为全部已通过。

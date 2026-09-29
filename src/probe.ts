@@ -1,14 +1,14 @@
 import { createHash } from 'node:crypto';
-import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PreflightError, type Contract } from './contract.ts';
+import { publishEvidence } from './evidence.ts';
 import { run } from './process.ts';
 import { createProbe } from './workspace.ts';
 
 export function digest(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
-function acceptanceResult(output: string): { passed: true; assertions: { name: string; passed: true }[] } {
+export function acceptanceResult(output: string): { passed: true; assertions: { name: string; passed: true }[] } {
   let value;
   try { value = JSON.parse(output); } catch { throw new PreflightError('ACCEPTANCE_INVALID', 'accept must emit a JSON behavior-assertion report, not a textual success claim'); }
   if (value?.passed !== true || !Array.isArray(value.assertions) || !value.assertions.length
@@ -58,25 +58,8 @@ export async function probeProject(
     node: process.version, commandTimeoutMs: contract.commandTimeoutMs,
     acceptance, cleanup: 'passed', retentionDays: contract.artifacts.retentionDays,
   };
-  const content = JSON.stringify(report, null, 2) + '\n';
-  const hash = createHash('sha256').update(content).digest('hex');
-  await writeFile(reportPath, content, { mode: 0o600 });
-  let publication: { url?: unknown; sha256?: unknown; retentionDays?: unknown };
-  try { publication = JSON.parse(await execute('publish')); }
-  catch (error) {
-    if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
-    throw new PreflightError('PUBLISH_UNRESOLVED', 'Publisher failed or result is unknown; preserve the probe report and reconcile remote artifacts before retrying');
-  }
-  const pattern = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/releases\/download\/([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)$/;
-  const link = typeof publication.url === 'string' ? pattern.exec(publication.url) : null;
-  if (!link || link[1]?.toLowerCase() !== repository.toLowerCase() || publication.sha256 !== hash
-    || typeof publication.retentionDays !== 'number' || publication.retentionDays < contract.artifacts.retentionDays) {
-    throw new PreflightError('EVIDENCE_INVALID', 'Publisher must return a same-repository release asset, matching SHA256 and sufficient retention');
-  }
-  const downloaded = await run(['gh', 'release', 'download', link[2]!, '--repo', repository, '--pattern', link[3]!, '--output', '-'], {
-    cwd, signal, timeoutMs: contract.commandTimeoutMs, label: 'evidence download',
-  });
-  if (createHash('sha256').update(downloaded).digest('hex') !== hash) throw new PreflightError('EVIDENCE_INVALID', 'Remote artifact bytes differ from the executed probe report');
+  const evidence = await publishEvidence({ cwd, repository, codeSha: sha, contract,
+    path: reportPath, report, publish: () => execute('publish'), signal });
   await workspace.remove();
-  return publication.url as string;
+  return evidence.url;
 }

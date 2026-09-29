@@ -10,7 +10,7 @@ export interface CommandOptions {
 }
 
 // Trusted project commands are process-group scoped, not a credential/OS sandbox.
-export async function run(argv: string[], options: CommandOptions): Promise<string> {
+export async function runBytes(argv: string[], options: CommandOptions): Promise<Buffer> {
   options.signal?.throwIfAborted();
   if (!argv[0] || process.platform === 'win32') throw new PreflightError('PLATFORM_UNSUPPORTED', 'POSIX command execution is required');
   return new Promise((resolve, reject) => {
@@ -64,9 +64,13 @@ export async function run(argv: string[], options: CommandOptions): Promise<stri
       }
       if (escalation) clearTimeout(escalation);
       if (failure || code !== 0) reject(new PreflightError(failure ?? 'COMMAND_FAILED', `${options.label} failed (exit ${code ?? 'unknown'}); inspect the project command privately`));
-      else resolve(Buffer.concat(output).toString('utf8'));
+      else resolve(Buffer.concat(output));
     });
   });
+}
+
+export async function run(argv: string[], options: CommandOptions): Promise<string> {
+  return (await runBytes(argv, options)).toString('utf8');
 }
 
 export function git(cwd: string, args: string[], signal?: AbortSignal): Promise<string> {

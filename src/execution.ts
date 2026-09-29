@@ -5,6 +5,8 @@ import { readContract } from './contract.ts';
 import { instructionSnapshot } from './agents.ts';
 import { implementInWorkspace } from './implementation.ts';
 import type { Plan } from './plan.ts';
+import type { ImplementationEvidence } from './mutation-evidence.ts';
+import type { ApprovedInstruction } from './evidence-context.ts';
 import { digest } from './probe.ts';
 import { Remote, type PullRequest } from './remote.ts';
 import { createTicketWorkspace, checkTicketWorkspace, commitTicket, pushNew, requireRemoteHead } from './ticket-workspace.ts';
@@ -12,9 +14,13 @@ import { createTicketWorkspace, checkTicketWorkspace, commitTicket, pushNew, req
 export interface ExecutionInput {
   cwd: string; repository: string; feature: string; base: string; plan: Plan;
   contract: Contract; scopeDigest: string; ctx: ExtensionContext; signal: AbortSignal;
+  approvedInstructions: readonly ApprovedInstruction[];
   assertScope(): Promise<void>;
 }
-export interface TicketResult { number: number; state: 'blocked' | 'paused'; pr?: PullRequest; }
+export interface TicketResult {
+  number: number; state: 'blocked' | 'paused' | 'delivered' | 'integrated-unaccepted'; pr?: PullRequest;
+  implementationEvidence?: ImplementationEvidence;
+}
 
 export async function executeFirstTicket(input: ExecutionInput): Promise<TicketResult> {
   const { cwd, repository, feature, base, plan, contract, ctx, signal } = input;
@@ -72,7 +78,8 @@ export async function executeFirstTicket(input: ExecutionInput): Promise<TicketR
   if (pr.head.sha !== sha) throw new PreflightError('REMOTE_DRIFT', 'PR head differs from the committed implementation');
   signal.throwIfAborted();
   ctx.ui.notify(`TICKET_PR: ${pr.html_url}`, 'info');
-  return { number: ticket.issue.number, state: 'paused', pr };
+  return { number: ticket.issue.number, state: 'paused', pr,
+    implementationEvidence: { baseline: base, mutations: result.mutations } };
 }
 
 // Called by the integration layer only once the feature has a real difference.

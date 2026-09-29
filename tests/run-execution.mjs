@@ -2,7 +2,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { lstat, mkdir, readFile, readlink, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 
-const names = ['success', 'ambiguity', 'no-diff', 'cancellation'];
+const names = ['ambiguity', 'no-diff', 'cancellation'];
 const selected = process.env.FLOW_EXECUTION_SCENARIO;
 if (selected && !names.includes(selected)) throw new Error('Unsupported FLOW_EXECUTION_SCENARIO');
 const remote = process.env.RUN_GITHUB_E2E === '1';
@@ -60,7 +60,7 @@ const report = JSON.stringify({
   environment: { node: process.version, pi, cliTransport: cliHttp1 ? 'HTTP/1.1 (TLS verification unchanged)' : 'environment default' },
   model: { provider: process.env.PI_PROVIDER ?? 'openai-codex', id: process.env.PI_MODEL ?? 'gpt-6-astra' },
   prerequisites: 'Authenticated gh with writes to acceptance repository; prepared synthetic greeting main; selected pi model credentials. Each selected scenario creates fresh Spec/native Ticket and retains remote synthetic evidence.',
-  boundary: 'T2 only: one Ticket PR; no gates, Ticket merge/closure or final Spec delivery. Real model for success/ambiguity; fixed loopback HTTP transport only for deterministic no-diff/cancellation boundaries.',
+  boundary: 'Pre-delivery refusal/cancellation through real pi; real model for ambiguity, fixed HTTP responses for no-diff and cancellation. The former successful Ticket PR case is superseded by integration real-integration, retaining its external assertions and extending them through trusted gates and merge.',
   expectedScenarios, skippedScenarios: names.filter(name => !expectedScenarios.includes(name)),
   allSelectedScenariosPassed: passed, testRunner, assertionResults: data.results, createdRemoteFixtures: data.created,
   failurePreservation: 'Unverified temporary clones retained; private local locator is execution-preserved.local.json and must not be published.',
