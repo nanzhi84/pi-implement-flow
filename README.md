@@ -49,6 +49,18 @@ Remote tests use the public synthetic repository
 - Permission to publish synthetic, content-addressed Release assets. Unknown
   publisher results stop and reconcile exact remote identities; no blind retries.
 
+If the existing proxy drops GitHub HTTP/2 connections (EOF/TLS transport errors),
+a per-process HTTP/1.1 compatibility run is supported and recorded in evidence:
+
+```sh
+GODEBUG=http2client=0 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.version \
+GIT_CONFIG_VALUE_0=HTTP/1.1 RUN_GITHUB_E2E=1 npm test
+```
+
+This changes no global settings, disables no TLS verification, adds no retries
+and does not weaken assertions. Diagnose failures first; never count an
+infrastructure-failed suite as accepted.
+
 The suite drives real pi RPC, not a mocked ExtensionAPI. Git repositories, pi
 resource directories and test data are temporary and isolated. The lifecycle
 bridge only exposes actual pi `newSession/fork/navigateTree/reload` operations
