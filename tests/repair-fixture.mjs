@@ -75,6 +75,7 @@ export async function verifyRepairChain(f, result) {
 export async function repairFixture(t, scenario) {
   assert.equal(repository, expectedRepository, 'repair suite must explicitly select its own isolated remote');
   const identity = api(`repos/${repository}`).id;
+  assert.equal(api(`repos/${repository}/branches/main`).commit.sha, '485b0ddfecbfed0fc6248fdad63454c792902f03', 'verify the approved synthetic baseline before any fixture writes');
   const socket = `/tmp/pi-flow-${process.getuid()}-${hash(`github.com:${identity}`).slice(0, 24)}.sock`;
   await assert.rejects(access(socket), { code: 'ENOENT' });
   const fixed = await repairProvider(t, scenario);

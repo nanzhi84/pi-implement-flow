@@ -1,6 +1,6 @@
 # #6 同 Ticket 修复：实现前的失败边界和 E2E
 
-本约定先于实施编写，不能作为通过记录。真实入口是 pi `/flow start SPEC`；使用独立、显式允许的合成仓库 `nanzhi84/pi-implement-flow-repair-acceptance`。初始 main、既有 Issues/PR、认证配置不被改动，每次场景使用新的原生 Spec/Ticket 和独立分支/资源。
+本约定先于实施编写，不能作为通过记录。真实入口是 pi `/flow start SPEC`；使用独立、显式允许的合成仓库 `nanzhi84/pi-implement-flow-repair-acceptance`，固定 main `485b0ddfecbfed0fc6248fdad63454c792902f03`；写 fixture 前核对。初始 main、既有 Issues/PR、认证配置不被改动，每次场景使用新的原生 Spec/Ticket 和独立分支/资源。
 
 | 外部失败边界 | 必须观察到的行为 |
 | --- | --- |
