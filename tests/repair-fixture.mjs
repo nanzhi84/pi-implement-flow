@@ -138,12 +138,13 @@ export async function repairFixture(t, scenario) {
       const delivered = new RegExp(`TICKET_DELIVERED: #${target.number} ([a-f0-9]{40})`).exec(output);
       const blocked = new RegExp(`TICKET_BLOCKED: Ticket #${target.number} (https://github\\.com/\\S+)`).exec(output);
       const status = delivered ? 'delivered' : output.includes(`TICKET_NO_PROGRESS: #${target.number} `) ? 'no-progress' : blocked ? 'blocked' : 'failed';
-      let repairModel;
+      let repairModel; let modelCalls;
       if (real) {
         assert.ok(fixed.requests.some(item => item.role === 'implementation' && !item.repair), 'initial defect must actually pass through the fixed HTTP transport');
         assert.ok(failures.length > 0, 'real repair acceptance requires an actual published candidate defect');
         await pi.request('prompt', { message: '/fixture-repair-model-status' });
         const models = JSON.parse(pi.notices.findLast(item => item.startsWith('REPAIR_MODEL_OBSERVER: ')).slice('REPAIR_MODEL_OBSERVER: '.length));
+        modelCalls = models;
         const repairs = models.filter(item => item.role === 'implementation' && item.repair);
         assert.ok(repairs.length > 0); assert.ok(repairs.every(item => item.provider === 'openai' && item.id === 'gpt-6-astra'));
         assert.ok(models.filter(item => item.role === 'review').every(item => item.provider === 'openai' && item.id === 'gpt-6-astra'));
@@ -151,7 +152,7 @@ export async function repairFixture(t, scenario) {
       }
       const question = blocked ? api(`repos/${repository}/issues/${target.number}/comments?per_page=100`).find(item => item.html_url === blocked[1]) : undefined;
       return { status, failures, gates, repairs, proof: latest.implementationEvidence, M: delivered?.[1], ticketPulls,
-        repairModel, repairPrompts: [...output.matchAll(new RegExp(`REPAIR_STARTED: Ticket #${target.number} `, 'g'))].length,
+        repairModel, modelCalls, repairPrompts: [...output.matchAll(new RegExp(`REPAIR_STARTED: Ticket #${target.number} `, 'g'))].length,
         mergeRequests: observer.mergeRequests, closeRequests: observer.closeRequests,
         candidateWaits: observer.candidateWaits, deferredReads: observer.deferredReads,
         question: question ? { url: question.html_url, body: question.body } : undefined };
@@ -183,7 +184,7 @@ export async function repairFixture(t, scenario) {
     pass(result, assertions) {
       f.pass({ assertions, status: result.status, boundary: real ? 'controlled initial SDK transport; real OpenAI repair and independent review' : 'deterministic model HTTP; actual SDK writes/CLI/GitHub',
         failures: result.failures, gates: result.gates, appendedCommits: result.repairs, M: result.M,
-        candidateWaits: result.candidateWaits, deferredReads: result.deferredReads,
+        candidateWaits: result.candidateWaits, deferredReads: result.deferredReads, modelCalls: result.modelCalls,
         ticketPr: result.ticketPulls[0].html_url, repairPrompts: result.repairPrompts, proofSegments: result.proof.segments.length });
     },
   };
