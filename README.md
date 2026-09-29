@@ -44,6 +44,15 @@ assertions and test boundary. Only `dirty: false` evidence can identify an exact
 committed version. Artifacts intentionally exclude raw process output and local
 paths. Preserve published evidence; temporary local test resources are cleaned.
 
+The acceptance runner also includes teardown in its final verdict. To verify that
+infrastructure/cleanup failures cannot produce passing evidence (both commands
+must exit nonzero, with `allSelectedScenariosPassed: false`):
+
+```sh
+PI_BIN=/nonexistent/pi npm test
+FLOW_ACCEPTANCE_FAIL_CLEANUP=1 npm test
+```
+
 Failure modes selected before implementation: missing/malformed execution
 contract, unreadable GitHub protection, and accidental mutation/dispatch on these
 refusal paths. Full start, dependency scheduling, recovery and merge acceptance

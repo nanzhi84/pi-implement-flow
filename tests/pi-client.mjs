@@ -13,12 +13,31 @@ export async function openPi(cwd, agentDir) {
   const notices = [];
   let serial = 0;
   let confirm = false;
+  let processFailure;
+  function failPending(message) {
+    processFailure = new Error(message);
+    for (const waiter of pending.values()) {
+      clearTimeout(waiter.timeout);
+      waiter.reject(processFailure);
+    }
+    pending.clear();
+  }
+  child.on('error', () => failPending('pi process could not start'));
+  child.on('exit', () => failPending('pi process exited'));
+  child.stdin.on('error', () => failPending('pi input stream failed'));
   // Deliberately do not capture stderr: third-party diagnostics may contain private paths.
   child.stderr.resume();
   createInterface({ input: child.stdout }).on('line', line => {
     let event;
     try { event = JSON.parse(line); } catch { return; }
-    if (event.type === 'response') pending.get(event.id)?.(event);
+    if (event.type === 'response') {
+      const waiter = pending.get(event.id);
+      if (waiter) {
+        clearTimeout(waiter.timeout);
+        pending.delete(event.id);
+        waiter.resolve(event);
+      }
+    }
     if (event.type === 'extension_ui_request') {
       if (event.method === 'notify') notices.push(event.message);
       if (event.method === 'confirm') {
@@ -27,13 +46,14 @@ export async function openPi(cwd, agentDir) {
     }
   });
   function request(type, fields = {}) {
+    if (processFailure) return Promise.reject(processFailure);
     const id = String(++serial);
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         pending.delete(id);
         reject(new Error(`pi ${type} timeout`));
       }, 60_000);
-      pending.set(id, result => { clearTimeout(timeout); pending.delete(id); resolve(result); });
+      pending.set(id, { resolve, reject, timeout });
       child.stdin.write(JSON.stringify({ id, type, ...fields }) + '\n');
     });
   }
@@ -48,7 +68,7 @@ export async function openPi(cwd, agentDir) {
       return notices.slice(start).join('\n');
     },
     async close() {
-      if (child.exitCode !== null) return;
+      if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
       const exited = new Promise(resolve => child.once('exit', resolve));
       child.kill('SIGTERM');
       const kill = setTimeout(() => child.kill('SIGKILL'), 2000);
