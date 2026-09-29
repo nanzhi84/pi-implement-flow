@@ -22,7 +22,7 @@ function section(issue: Issue, names: string[]): string | undefined {
     const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
     if (marker?.[1]) {
       if (!fence) fence = marker[1];
-      else if (marker[1][0] === fence[0] && marker[1].length >= fence.length && !marker[2]?.trim()) fence = undefined;
+      else if (marker[1][0] === fence[0] && marker[1].length >= fence.length && /^[ \t]*$/.test(marker[2] ?? '')) fence = undefined;
       continue;
     }
     if (fence) continue;

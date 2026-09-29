@@ -45,6 +45,7 @@ The remote cases read public repository `nanzhi84/pi-implement-flow-acceptance`:
 | #15 | Mixed valid reference and `#0` | Reject, never drop invalid reference |
 | #18 | `None pending clarification` | Reject ambiguous declaration |
 | #20 | Planning headings inside a fenced example with a false closing marker | Example cannot satisfy real acceptance |
+| #21 | Nonbreaking space after a would-be closing fence | Unicode suffix must not turn example headings into real planning |
 
 The repository was made public with user approval. Historical evidence release
 `acceptance-32e3acf` describes its former private-plan rejection, **not** the

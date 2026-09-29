@@ -50,6 +50,7 @@ const planningScenarios = [
   { name: 'invalid-zero-reference-refused', spec: 15, expected: /DEPENDENCY_INVALID.*#17/ },
   { name: 'ambiguous-none-refused', spec: 18, expected: /DEPENDENCY_INVALID.*#19/ },
   { name: 'fenced-planning-refused', spec: 20, expected: /PLAN_INCOMPLETE.*#20.*acceptance/ },
+  { name: 'unicode-fence-suffix-refused', spec: 21, expected: /PLAN_INCOMPLETE.*#21.*acceptance/ },
 ];
 for (const scenario of planningScenarios) {
  test(`real pi and GitHub: ${scenario.name}`, { skip: process.env.RUN_GITHUB_E2E !== '1' }, async t => {
