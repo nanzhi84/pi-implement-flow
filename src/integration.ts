@@ -48,17 +48,23 @@ export async function integrateTicket(input: ExecutionInput, submitted: TicketRe
     throw new PreflightError('EVIDENCE_STALE', 'GitHub merge candidate does not have the current ordered base/head parents');
   }
   const versions: Versions = { H, B, C };
-  let candidate: GateEvidence;
-  try { candidate = await ticketGate(input, ticket, versions, 'candidate', submitted.implementationEvidence); }
-  catch (error) {
-    if (error instanceof ReviewBlocked && !signal.aborted) {
-      await remote.comment(before.number, `Independent review blocked Ticket #${ticket.issue.number}.\n\n`
-        + `Version: \`${C}\`\nScope: \`${input.scopeDigest}\`\n\n`
-        + error.review.blockers.map(finding => `- ${finding.category}: ${finding.basis}\n  Impact: ${finding.impact}\n  Verify: ${finding.verification}`).join('\n')
-        + '\n\nNo implementation statement grants approval. The Ticket remains open.');
+  const reviewedGate = async (current: Versions, phase: 'candidate' | 'actual') => {
+    try { return await ticketGate(input, ticket, current, phase, submitted.implementationEvidence); }
+    catch (error) {
+      if (error instanceof ReviewBlocked && !signal.aborted) {
+        const codeSha = phase === 'candidate' ? current.C : current.M!;
+        const findings = await remote.comment(before.number, `Independent review blocked Ticket #${ticket.issue.number}.\n\n`
+          + `Phase: \`${phase}\`\nVersion: \`${codeSha}\`\nScope: \`${input.scopeDigest}\`\n\n`
+          + error.review.blockers.map(finding => `- ${finding.category}: ${finding.basis}\n  Impact: ${finding.impact}\n  Verify: ${finding.verification}`).join('\n')
+          + (phase === 'actual'
+            ? '\n\nRemote merge already happened; this result is integrated-unaccepted. No closure or downstream release is authorized.'
+            : '\n\nNo implementation statement grants approval. The Ticket remains open.'));
+        ctx.ui.notify(`REVIEW_FINDINGS: ${phase} ${codeSha} ${findings.html_url}`, 'error');
+      }
+      throw error;
     }
-    throw error;
-  }
+  };
+  const candidate = await reviewedGate(versions, 'candidate');
   await input.assertScope();
   await requireRemoteHead(cwd, input.feature, B);
   let latest = await remote.pull(before.number);
@@ -91,7 +97,7 @@ export async function integrateTicket(input: ExecutionInput, submitted: TicketRe
     await input.assertScope();
     const total = await ensureDraftTotal(input);
     if (!total) throw new PreflightError('DELIVERY_NO_DIFF', 'Merged result has no effective main difference; preserve it and request a decision');
-    const actual = M === C ? candidate : await ticketGate(input, ticket, { ...versions, M }, 'actual', submitted.implementationEvidence);
+    const actual = M === C ? candidate : await reviewedGate({ ...versions, M }, 'actual');
     await input.assertScope();
     await requireRemoteHead(cwd, input.feature, M);
     const actualPr = await remote.pull(before.number);

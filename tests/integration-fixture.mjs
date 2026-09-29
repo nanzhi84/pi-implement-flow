@@ -8,9 +8,9 @@ import { api, fixture, git, repository, runGreeting } from './execution-fixture.
 import { implementationFiles, integrationProvider } from './integration-provider.mjs';
 export { api, git, repository };
 export const names = ['real-integration', 'accept-failure', 'review-rejects-self-approval', 'evidence-unavailable',
-  'stale-head', 'stale-base', 'actual-merge-recheck-fails', 'base-race-after-final-read'];
+  'stale-head', 'stale-base', 'actual-merge-recheck-fails', 'actual-review-blockers-recorded', 'base-race-after-final-read'];
 
-const requirement = `First add a real CLI acceptance assertion named whitespace-only-rejected to fixture.mjs; preserve every existing acceptance assertion and executable check. Then change app.mjs to reject entirely whitespace names (spaces or tabs) with exit code 2 and empty stdout. Preserve Ada greeting, meaningful whitespace, missing-name rejection and newline rejection. Only app.mjs and fixture.mjs may change. This Ticket requires additive acceptance coverage under the project rule permitting new behavior assertions before implementation; preserve every existing assertion and executable check. Do not change .pi/flow.json, commands, AGENTS.md or publish.mjs. Internal gates may merge the Ticket PR into its feature branch and close the Ticket only after actual-version evidence is complete. Keep the Spec open and total PR Draft; never merge main.`;
+const requirement = `First add a real CLI acceptance assertion named whitespace-only-rejected to fixture.mjs; preserve every existing acceptance assertion and executable check. Apply this single rule: reject with exit code 2 and empty stdout if the name is missing, contains CR or LF, or name.trim() === ''; otherwise emit the existing greeting with the accepted name's exact original contents. The emptiness check uses JavaScript String.trim whitespace semantics; cover spaces, TAB, form feed, vertical tab, NBSP (U+00A0) and U+2003. Use trim only for emptiness detection, never to normalize an accepted name or its greeting. Preserve the exact Ada greeting and meaningful surrounding whitespace in accepted names. Only app.mjs and fixture.mjs may change. This Ticket requires additive acceptance coverage under the project rule permitting new behavior assertions before implementation; preserve every existing assertion and executable check. Do not change .pi/flow.json, commands, AGENTS.md or publish.mjs. Internal gates may merge the Ticket PR into its feature branch and close the Ticket only after actual-version evidence is complete. Keep the Spec open and total PR Draft; never merge main.`;
 
 export async function integrationFixture(t, scenario) {
   const identity = api(`repos/${repository}`).id;
@@ -21,8 +21,8 @@ export async function integrationFixture(t, scenario) {
   const fixed = scenario === 'real-integration' ? undefined : await integrationProvider(t, scenario);
   const f = await fixture(t, scenario, {
     stage: 'T3', fixed, preserveOnPass: scenario !== 'real-integration',
-    specBody: `## Problem Statement\n\nImplement whitespace-only name rejection in the synthetic greeting CLI. ${requirement}\n\n## Acceptance criteria\n\n- Add the named CLI assertion before implementation, preserving existing checks.\n- Deliver one independently reviewed Ticket PR through candidate and actual-version gates.\n- After verified integration close the Ticket, keep Spec open and total PR Draft, and preserve main.`,
-    ticketBody: spec => `## What to build\n\n${requirement}\n\nPart of #${spec}.\n\n## Acceptance criteria\n\n- Whitespace-only names exit 2 with no stdout.\n- Ada and meaningful surrounding whitespace preserve their exact existing greeting.\n- Missing/newline names remain rejected.\n- The candidate and actual merge acceptance reports include greeting-for-name, missing-name-rejected and whitespace-only-rejected.\n\n## Blocked by\n\nNone`,
+    specBody: `## Problem Statement\n\nImplement JavaScript String.trim blank-name rejection in the synthetic greeting CLI. ${requirement}\n\n## Acceptance criteria\n\n- Add the named CLI assertion before implementation, covering spaces, TAB, form feed, vertical tab, NBSP (U+00A0) and U+2003 while preserving existing checks.\n- Reject a missing name, a name containing CR or LF, or a name with name.trim() === ''; otherwise preserve the accepted name's exact original contents in the greeting.\n- Deliver one independently reviewed Ticket PR through candidate and actual-version gates.\n- After verified integration close the Ticket, keep Spec open and total PR Draft, and preserve main.`,
+    ticketBody: spec => `## What to build\n\n${requirement}\n\nPart of #${spec}.\n\n## Acceptance criteria\n\n- Reject with exit code 2 and no stdout if the name is missing, contains CR or LF, or name.trim() === ''; otherwise accept it.\n- The blank-name check uses JavaScript String.trim semantics; cover spaces, TAB, form feed, vertical tab, NBSP (U+00A0) and U+2003.\n- Ada and all accepted names, including meaningful surrounding whitespace, preserve their exact original contents in the greeting; use trim only for emptiness detection, never output normalization.\n- The candidate and actual merge acceptance reports include greeting-for-name, missing-name-rejected and whitespace-only-rejected.\n\n## Blocked by\n\nNone`,
   });
   // Registered after fixture teardown: its pi process must have exited first.
   // Only a socket absent before this isolated scenario may be reconciled here.
@@ -40,7 +40,7 @@ export async function integrationFixture(t, scenario) {
   });
   fixed?.setImplementation(await implementationFiles(f.project, scenario === 'review-rejects-self-approval'));
   const contract = JSON.parse(await readFile(join(f.project, '.pi/flow.json'), 'utf8'));
-  const mode = ['real-integration', 'review-rejects-self-approval'].includes(scenario) ? 'observe' : scenario;
+  const mode = ['real-integration', 'review-rejects-self-approval', 'actual-review-blockers-recorded'].includes(scenario) ? 'observe' : scenario;
   let confirmation;
   const pi = await f.open({ onConfirm: event => { confirmation = event.message; return true; }, extensions: [fileURLToPath(new URL('./fixtures/integration-bridge.mjs', import.meta.url))] });
   assert.equal((await pi.request('prompt', { message: `/fixture-integration ${JSON.stringify({ mode, repository, spec: f.spec.number, ticket: f.ticket.number })}` })).success, true);
@@ -172,7 +172,10 @@ export function verifyRemoteBehavior(f, sha) {
   git(f.project, 'worktree', 'add', '--quiet', '--detach', cwd, sha);
   assert.deepEqual(runGreeting(cwd, 'Ada'), { exitCode: 0, stdout: 'Hello, Ada!\n' });
   assert.deepEqual(runGreeting(cwd, ' Ada '), { exitCode: 0, stdout: 'Hello,  Ada !\n' });
-  for (const name of ['   ', '\t', '\t \t', 'Ada\nLovelace']) assert.deepEqual(runGreeting(cwd, name), { exitCode: 2, stdout: '' });
+  assert.deepEqual(runGreeting(cwd, '\u00a0Ada\u2003'), { exitCode: 0, stdout: 'Hello, \u00a0Ada\u2003!\n' });
+  for (const name of ['   ', '\t', '\t \t', '\f', '\v', '\u00a0', '\u2003', ' \t\f\v\u00a0\u2003', 'Ada\rLovelace', 'Ada\nLovelace']) {
+    assert.deepEqual(runGreeting(cwd, name), { exitCode: 2, stdout: '' });
+  }
   assert.deepEqual(runGreeting(cwd), { exitCode: 2, stdout: '' });
   assert.deepEqual(git(cwd, 'diff', '--name-only', f.baseline, sha).split('\n'), ['app.mjs', 'fixture.mjs']);
 }

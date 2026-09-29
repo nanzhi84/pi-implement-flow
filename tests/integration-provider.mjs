@@ -35,7 +35,7 @@ export async function implementationFiles(project, weaken = false) {
   assert.ok(app.includes('if (!name ||'), 'known baseline greeting contract required');
   const insertion = "  process.stdout.write(JSON.stringify({ passed: true, assertions: [";
   assert.ok(source.includes(insertion), 'known baseline acceptance entrypoint required');
-  const check = `  for (const name of ['   ', '\\t', '\\t \\t']) {
+  const check = `  for (const name of ['   ', '\\t', '\\t \\t', '\\f', '\\v', '\\u00a0', '\\u2003', ' \\t\\f\\v\\u00a0\\u2003']) {
     let rejectedWhitespace = false;
     try { execFileSync(process.execPath, ['app.mjs', name], { stdio: 'pipe' }); }
     catch (error) { rejectedWhitespace = error.status === 2 && error.stdout.length === 0; }
@@ -96,6 +96,15 @@ export async function integrationProvider(t, scenario) {
               verification: 'Restore the original missing-name CLI check and named assertion while retaining whitespace-only-rejected.' }] : [],
             suggestions: scenario === 'actual-merge-recheck-fails' ? ['Optional style preference: use a descriptive local name; this does not block correctness.']
               : scenario === 'evidence-unavailable' ? ['Synthetic byte-integrity sentinel FLOW_UTF8_SENTINEL:\uFFFD:END; no code change is requested.'] : [] };
+          if (scenario === 'actual-review-blockers-recorded') {
+            assert.ok(['candidate', 'actual'].includes(context.phase));
+            assert.equal(context.codeSha, context.versions[context.phase === 'actual' ? 'M' : 'C']);
+            assert.equal(priorTools.length, 0, 'each version starts a fresh review conversation');
+            if (context.phase === 'actual') answer.blockers = [{ category: 'spec',
+              basis: `Synthetic actual-version finding for ${context.codeSha}: the acceptance output lacks a separately named assertion for the approved newline-rejection behavior.`,
+              impact: 'A newline-rejection regression could be absent from the visible acceptance index; this deterministic reviewer withholds approval for the actual merge.',
+              verification: 'Add an explicit newline CLI assertion while preserving existing checks, then rerun acceptance and independent review on the actual integrated version.' }];
+          }
           reviews.push(answer);
         }
       }

@@ -6,6 +6,8 @@
 
 ## 正常交付路径
 
+新建合成 Spec/Ticket 采用唯一规则：name 缺失、含 CR/LF，或 JavaScript `name.trim() === ''` 时，以退出码 2 和空 stdout 拒绝；否则接受并在既有问候语中完整保留该 name 的原始内容。`trim` 仅按 `String.trim` 语义判空，不用于输出规范化。空格、TAB、form feed、vertical tab、NBSP（U+00A0）及 U+2003 均有真实 CLI 断言；既有缺少名字、含 CR/LF 的拒绝断言保留。本次只明确新 fixture 输入，不修改历史 Issues，也不将它归因为旧审查阻塞原因。
+
 1. 使用真实实现模型与独立审查上下文执行一个可见的小功能；从 GitHub Ticket PR 获取实际 H，并确认目标是本 Spec 的功能分支。
 2. C 的远端工件可下载且摘要匹配，包含实际项目命令、数据/环境前提、通过的非空行为断言、H/B/C 与有效需求摘要；独立审查记录对应版本并表明无阻断意见。
 3. Ticket PR 从 Draft 进入可合并状态并实际 merged。独立读取 Git 对象与远端分支，断言 M 的父提交顺序是 `[B,H]`、tree 与 C 一致、功能分支为 M。
@@ -26,6 +28,7 @@
 | C 门禁后 B 改变且可提前观察 | merge 请求前推进功能分支 | 不发送 merge，保留现场并报告外部写入，不自动接纳 B′ |
 | 最后读取后发生 B 竞态 | 最后读取完成后、真实 merge 前由测试外部写入者推进 B | 若远端实际合入，双 parent 检查发现偏差；显示 integrated-unaccepted，Ticket open，不解锁、不继续集成。不得声称 merge 已被阻止 |
 | C/M tree 相同但 M 验收失败 | 对实际 M 的命令执行边界注入确定性失败，并标明注入边界 | C 成功不能放行 M；保留已 merged 事实、Ticket open、总 PR Draft，停止后续自动化 |
+| 实际 M 的独立审查阻断项丢失 | 候选 C review 通过并真实 merge；M≠C 后固定 reviewer 返回带完整依据、影响及验证条件的阻塞项 | Ticket PR 评论持久化 phase=actual、精确 M/scope 及完整 category/basis/impact/verification，通知给出该评论链接；保留 merged 事实和功能分支 M，Ticket open、总 PR Draft、无关闭请求，C 工件不能替代失败的 M 审查 |
 | merge 成功但响应丢失 | 真实服务端已执行，客户端结果被测试边界丢弃 | 不重 merge，不关票、不解锁；结果未核对时保留控制权和现场。自动接续不是本票前提 |
 | M 验收期间范围或 feature 改变 | 验收执行中追加未批准范围变化或外部写入 | 当前放行失效；不把旧工件用于新范围，不关闭 Ticket |
 | 关票结果未知 | 真实关票响应丢失或后续核对不可用 | 区分已集成与关票待核对，不重复交付、不提前解锁 |
@@ -33,6 +36,8 @@
 | 原生 required review 不可满足 | 隔离仓库配置真实保护规则，缺少有效独立批准身份 | 安全拒绝，无 admin bypass；该拒绝不证明支持受保护仓库的成功路径 |
 
 ## 工件与可重复性
+
+实际 OpenAI 的 M 审查阻断暴露了独立的可观察缺口：候选阶段会回写完整 findings，实际阶段只报告通用错误，用户无法从 PR 找到阻塞依据和修复条件。新增 `actual-review-blockers-recorded` 先固定此行为约定，再修复统一的候选/实际审查记录路径。该场景通过真实 SDK 在候选上下文通过 review、在精确实际 M 上返回一项可追溯的合成 blocker；随后直接读取 GitHub PR 评论、Ticket、总 PR、feature 与 Git 对象，不用错误通知替代远端落盘证据。既有 `actual-merge-recheck-fails` 仍保留，因命令失败与审查 findings 持久化是不同的外部契约。
 
 真实 OpenAI reviewer 暴露了测试先行的证据缺口：最终 diff 不能证明写入顺序。补充控制器实际写入证据前，先明确失败方式：无变化重写不算进展；测试占位版本不能证明最终断言先于实现；同一文件多次修改须核对完整摘要链；部分写入失败、证据容量不足、命令改变源码或链与实际 H 不符时停止；C/M 内容变化不得沿用不匹配的早期摘要。
 
@@ -45,4 +50,4 @@
 - 最终交付证据必须绑定实际交付的代码版本；dirty 调试报告不冒充提交版本的验收结果。源码版本变化后按受影响行为重新验证。
 - 工件不得包含凭据、原始模型会话、个人路径、生产数据或未经处理的 stderr。失败现场保留；公开证据与本地私有定位信息分开。不能为清理场景删除仍需核对的成果。
 - 入口：`PI_BIN=/path/to/openai-capable/pi PI_PROVIDER=openai PI_MODEL=gpt-6-astra RUN_GITHUB_E2E=1 npm run test:integration`。`FLOW_INTEGRATION_SCENARIO` 可选择单一场景。主机 pi 0.99.1 提供当前 OpenAI 认证；开发 SDK 0.87.1 单独记录。
-- 当前最小套件为 8 个场景：real-integration、accept-failure、review-rejects-self-approval、evidence-unavailable、stale-head、stale-base、actual-merge-recheck-fails、base-race-after-final-read；原生 required review 拒绝复用同 SHA 的 T1 测试。表中其余时序由后续生命周期/恢复 Ticket 验证，不把设计表视为全部已通过。
+- 当前最小套件为 9 个场景：real-integration、accept-failure、review-rejects-self-approval、evidence-unavailable、stale-head、stale-base、actual-merge-recheck-fails、actual-review-blockers-recorded、base-race-after-final-read；原生 required review 拒绝复用同 SHA 的 T1 测试。表中其余时序由后续生命周期/恢复 Ticket 验证，不把设计表视为全部已通过。

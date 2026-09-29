@@ -160,9 +160,10 @@ RUN_GITHUB_E2E=1 npm run test:integration
 ```
 
 The real-model case implements the CLI behavior and reviews C and actual M in
-separate conversations. Seven fixed loopback-model cases exercise acceptance
+separate conversations. Eight fixed loopback-model cases exercise acceptance
 failure, self-approval/weakening rejection, damaged evidence, H/B drift, failed
-actual-M acceptance and an actual merge against a racing base. See
+actual-M acceptance, durable actual-M review findings and an actual merge against
+a racing base. See
 [T3 scenarios](docs/testing/t3-scenarios.md) and `artifacts/integration.json`.
 The required-review fixture proves safe refusal, not protected-PR success.
 

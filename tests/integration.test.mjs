@@ -87,7 +87,7 @@ test('real OpenAI model delivers and independently reviews the actual integrated
       mutations: mutations.length, finalAcceptanceWrittenAt: acceptanceWritten.order, firstImplementationWrittenAt: implementationWritten.order,
       boundary: 'Raw Git bytes independently anchor completed controlled writes; this proves final acceptance content was written first, not that a failing test ran first.' },
     evidence: [c, ...(accepted === c ? [] : [accepted])].map(item => ({ url: item.url, sha256: item.sha256, codeSha: item.report.codeSha })),
-    assertions: ['original T2 baseline/PR identity/context/scope/main assertions retained', 'real OpenAI implementation and independent reviewer', 'new CLI assertion plus existing assertions executed', 'raw baseline/H blobs anchor complete mutation chains and changed-file coverage', 'final acceptance bytes written before first effective implementation mutation', 'C/M preserve source events and bind delivered-file matches to actual bytes', 'C parents verified', 'merge constrained to H', 'actual M parents/tree verified', 'actual SHA revalidated when different', 'historic C bytes preserved', 'remote M business CLI verified', 'Ticket closes after gate evidence', 'controller attributes command definitions and isolated review source', 'Draft total links full delivery/evidence chain', 'Spec open; total PR Draft; main unchanged'] });
+    assertions: ['original T2 baseline/PR identity/context/scope/main assertions retained', 'real OpenAI implementation and independent reviewer', 'new CLI assertion plus existing assertions executed', 'raw baseline/H blobs anchor complete mutation chains and changed-file coverage', 'final acceptance bytes written before first effective implementation mutation', 'C/M preserve source events and bind delivered-file matches to actual bytes', 'C parents verified', 'merge constrained to H', 'actual M parents/tree verified', 'actual SHA revalidated when different', 'historic C bytes preserved', 'remote M rejects String.trim spaces/TAB/FF/VT/NBSP/U+2003 and preserves accepted name bytes; missing/CR/LF remain rejected', 'Ticket closes after gate evidence', 'controller attributes command definitions and isolated review source', 'Draft total links full delivery/evidence chain', 'Spec open; total PR Draft; main unchanged'] });
 });
 
 test('candidate executable acceptance failure cannot obtain integration eligibility', options('accept-failure'), async t => {
@@ -193,6 +193,45 @@ test('nonblocking style review permits merge but equal-tree M still requires pas
   f.verifyInvariants();
   f.pass({ versions, ticketPr: pr.html_url, evidence: { url: c.url, sha256: c.sha256 }, injection: 'real actual-M accept child returns failure after command completed',
     assertions: ['style-only suggestion did not block actual merge', 'M differs from C despite equal tree', 'actual-M commands execute', 'C evidence cannot approve M', 'merged fact retained as integrated-unaccepted', 'Ticket open; no close request or delivery; main unchanged'] });
+});
+
+test('actual-version review blockers persist on the merged PR with a navigable notification', options('actual-review-blockers-recorded'), async t => {
+  const f = await integrationFixture(t, 'actual-review-blockers-recorded');
+  const output = await f.run(); const observed = await f.observer();
+  const c = readGate(f, candidate(observed));
+  const pr = ticketPull(f);
+  assert.equal(pr.merged, true); assert.equal(pr.state, 'closed');
+  const versions = verifyVersionChain(f, pr, c);
+  assert.notEqual(versions.M, versions.C, 'actual review must concern a distinct real merge commit');
+  const requests = f.fixed.requests.filter(request => request.role === 'review');
+  assert.equal(requests.length, 2);
+  for (const request of requests) assert.equal(request.input.messages.filter(message => ['assistant', 'tool'].includes(message.role)).length, 0);
+  assert.deepEqual(f.fixed.reviews.map(review => review.codeSha), [versions.C, versions.M]);
+  assert.deepEqual(f.fixed.reviews[0].blockers, []);
+  const review = f.fixed.reviews[1];
+  assert.equal(review.scopeDigest, c.report.scopeDigest); assert.equal(review.blockers.length, 1);
+  for (const phase of ['prepare', 'check', 'accept', 'cleanup']) assert.ok(observed.commands.some(command => command.phase === 'actual' && command.command === phase && command.sha === versions.M));
+  assert.equal(observed.gates.filter(gate => gate.phase === 'actual').length, 0, 'C evidence cannot approve the rejected actual version');
+  assert.equal(readGate(f, candidate(observed)).sha256, c.sha256, 'historical C evidence retains its exact bytes');
+  const comments = api(`repos/${repository}/issues/${pr.number}/comments`);
+  const findings = comments.filter(comment => comment.body.includes('Phase: `actual`')
+    && comment.body.includes(`Version: \`${versions.M}\``) && comment.body.includes(`Scope: \`${review.scopeDigest}\``)
+    && review.blockers.every(blocker => ['category', 'basis', 'impact', 'verification'].every(key => comment.body.includes(blocker[key]))));
+  assert.equal(findings.length, 1, 'complete actual-version findings must be stored once on the real Ticket PR');
+  assert.ok(findings[0].html_url.startsWith(`${pr.html_url}#issuecomment-`));
+  assert.ok(output.includes(`REVIEW_FINDINGS: actual ${versions.M} ${findings[0].html_url}`), 'notification links the persisted version-bound review record');
+  assert.match(output, /INTEGRATED_UNACCEPTED:/); assert.doesNotMatch(output, /TICKET_DELIVERED:/);
+  const status = await f.pi.flow('status'); assert.match(status, /integrated-unaccepted/); assert.ok(status.includes(versions.M));
+  assert.equal(observed.mergeRequests.length, 1, 'never merge again after an actual-version review blocker');
+  assert.equal(observed.closeRequests.length, 0);
+  const total = totals(f); assert.equal(total.length, 1); assert.equal(total[0].draft, true); assert.equal(total[0].state, 'open');
+  assert.equal(total[0].head.sha, versions.M); assert.equal(total[0].base.ref, 'main');
+  f.verifyInvariants();
+  f.pass({ versions, ticketPr: pr.html_url, totalPr: total[0].html_url, findingsComment: findings[0].html_url,
+    review: { phase: 'actual', codeSha: review.codeSha, scopeDigest: review.scopeDigest, blockers: review.blockers },
+    candidateEvidence: { url: c.url, sha256: c.sha256 },
+    injection: 'fixed HTTP reviewer passes C and returns one explicit blocker only in the fresh actual-M SDK review; real GitHub merge and comment writes are unchanged',
+    assertions: ['C independently passes before real GitHub merge', 'distinct M receives fresh review after actual commands', 'full actual phase/M/scope/category/basis/impact/verification persisted once on Ticket PR', 'notification links the remotely readable findings', 'C evidence cannot substitute for failed actual review', 'merged parents/tree and feature M retained', 'status retains integrated-unaccepted and M', 'exactly one merge; no close request or delivery', 'Ticket/Spec open; total Draft; main unchanged'] });
 });
 
 test('a base race after final reads is reported as merged but unaccepted without rollback', options('base-race-after-final-read'), async t => {
