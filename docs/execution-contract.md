@@ -1,10 +1,11 @@
 # Execution contract
 
-`/flow start <issue-number> [--concurrency N]` defaults to concurrency 2. T1
-validates and confirms the exact plan, checks supported permissions/protection
-and independent-role readiness, executes real project probes, downloads the
-published evidence, then starts a flow **paused with `executor-not-installed`**.
-Ticket implementation arrives in T2; successful preflight is not Ticket delivery.
+`/flow start <issue-number> [--concurrency N]` defaults to concurrency 2. It validates
+and confirms the exact plan, verifies probes and independent-role readiness, then
+executes one independent open Ticket in the T2 slice. The result is a Draft Ticket
+PR into `flow/spec-N`, with the Ticket still open and flow paused at
+`gates-not-installed`. `/flow preflight` runs only preflight/probes and stays at
+`preflight-only`; neither result is completed delivery.
 
 ## Preconditions and trust
 
@@ -49,23 +50,23 @@ Unknown configuration keys are rejected; required fields:
 - `resources`: `mode` (`isolated` or `exclusive`) and a description. Preflight
   always runs one probe at a time in its owned worktree/resource directory.
 - `artifacts`: destination description and positive `retentionDays`.
-- `agents.implementation`: explicit built-in `tools`, empty `extensions`, and
+- `agents.implementation`: explicit supported `tools`, empty `extensions`, and
   project-relative `instructions` files resolving inside the project.
-- `agents.review`: read-only built-in tools, empty extensions, explicit instruction
+- `agents.review`: read-only supported tools, empty extensions, explicit instruction
   files and `isolation: "independent-context"`.
 - `agents.retry`: boolean `enabled`, nonnegative finite `maxRetries`, and
   `providerMaxRetries: 0`. These are SDK transport retries, not repair budgets.
 
 ## Command and artifact protocol
 
-All commands run in a detached worktree of the confirmed SHA. Environment:
+Preflight commands run in a detached worktree of the confirmed SHA. Environment:
 
 - `FLOW_RESOURCE_DIR`: unique owned resource directory; write test data here.
 - `FLOW_CODE_SHA`: tested Git commit.
 - `FLOW_REPOSITORY`: canonical owner/repository.
 - `FLOW_REPORT`: orchestrator-produced report for publication.
 
-Order: prepare → check → accept → cleanup → publish. Cleanup runs after failed
+Preflight order: prepare → check → accept → cleanup → publish. Cleanup runs after failed
 preparation/check/acceptance too, unless process quiescence or code preservation
 cannot be established. Both HEAD SHA and worktree contents must remain unchanged after each command
 and before removal; a clean commit/checkout is still version drift. Dirty or
@@ -73,6 +74,14 @@ unresolved workspaces are preserved; no force removal. Probe-only directories ar
 removed only after safe project cleanup. Publisher failures preserve the report. An unverified process-stop classification
 is preserved across cleanup/publish/Git error boundaries and retains controller
 ownership; it cannot become an ordinary publisher/cleanup failure.
+
+Ticket implementation uses a named Ticket worktree. Its order is controller
+prepare → Agent edits and optional approved checks → controller cleanup. Preparation
+must preserve source/branch/base before dispatch, and cleanup must preserve the
+Agent's source changes. `FLOW_CODE_SHA` here is the recorded starting baseline;
+uncommitted edits are not yet a tested commit. These optional Agent checks are not
+gate evidence, and no `FLOW_REPORT` is produced for them. The controller later
+commits the actual result; T3 will run mandatory gates against committed versions.
 
 `accept` must exit zero and emit only JSON:
 
@@ -117,8 +126,18 @@ used. This initial supported subset must not be mistaken for all GitHub policies
 Session switch/fork/tree/reload/shutdown abort pending confirmation/work, wait
 for safe stopping, and release ownership only when quiescence is known. Late
 confirmations cannot start a flow. No chat/session operation rolls back Git or
-GitHub. A successfully preflighted flow retains ownership while intentionally
-paused awaiting T2; session change/shutdown releases it safely.
+GitHub. A successful flow retains ownership while paused at its current capability boundary.
+Session change/shutdown releases it only when stopping is verified and no remote
+write remains unresolved. The confirmed model is pinned for implementation.
+
+T2 creates `flow/ticket-SPEC-TICKET` in an owned worktree from the recorded feature
+baseline. Role tools refuse `.git`, symlinks, hard links and paths outside this
+worktree; the command tool maps only `prepare/check/accept` to approved argv. The
+controller performs commits/pushes/PR creation and uses an atomic expected-absent
+condition when creating remote branches. No-diff or ambiguity produces no empty
+commit/PR. Questions are recorded on the Ticket; ordinary discussion comments do
+not approve scope changes. Before dispatching or publishing it revalidates scope;
+changed contracts/instructions or branch/history drift preserve work and stop.
 
 ## Planning format
 

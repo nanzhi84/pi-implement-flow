@@ -4,21 +4,21 @@ import { FlowController } from './preflight.ts';
 export default function implementFlow(pi: ExtensionAPI) {
   const flow = new FlowController();
   pi.registerCommand('flow', {
-    description: 'Start a planned Spec: /flow start <issue> [--concurrency N]; /flow status',
+    description: '/flow start <issue> [--concurrency N]; /flow preflight <issue>; /flow status',
     handler: async (args, ctx) => {
       if (args.trim() === 'status') return flow.show(ctx);
-      const input = /^start ([1-9]\d*)(?: --concurrency ([1-9]\d*))?$/.exec(args.trim());
+      const input = /^(start|preflight) ([1-9]\d*)(?: --concurrency ([1-9]\d*))?$/.exec(args.trim());
       if (!input) {
-        ctx.ui.notify('Usage: /flow start <issue> [--concurrency N]; /flow status', 'error');
+        ctx.ui.notify('Usage: /flow start <issue> [--concurrency N]; /flow preflight <issue>; /flow status', 'error');
         return;
       }
-      const number = Number(input[1]);
-      const concurrency = Number(input[2] ?? 2);
+      const number = Number(input[2]);
+      const concurrency = Number(input[3] ?? 2);
       if (![number, concurrency].every(Number.isSafeInteger)) {
         ctx.ui.notify('INPUT_INVALID: Issue and concurrency must be positive safe integers', 'error');
         return;
       }
-      await flow.start(number, concurrency, ctx);
+      await flow.start(number, concurrency, ctx, input[1] === 'start');
     },
   });
   pi.on('session_before_switch', async (_event, ctx) => { await flow.pause(ctx, 'session change'); });

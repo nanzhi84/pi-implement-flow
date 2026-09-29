@@ -34,12 +34,12 @@ async function fixture(t, credentials = true, env = {}) {
   return { project, async open(options = {}) { const pi = await openPi(project, agent, { model, env, ...options }); clients.push(pi); return pi; } };
 }
 
-test('real pi confirms, probes, publishes, excludes another controller and pauses on session change', { skip }, async t => {
+test('real pi preflight confirms, probes, publishes, excludes another controller and pauses on session change', { skip }, async t => {
   const f = await fixture(t);
   const first = await f.open();
-  const output = await first.flow('start 1 --concurrency 2', true);
+  const output = await first.flow('preflight 1 --concurrency 2', true);
   assert.match(output, /FLOW_STARTED/);
-  assert.match(output, /paused.*executor-not-installed/);
+  assert.match(output, /paused.*preflight-only/);
   const link = /EVIDENCE_URL: (https:\/\/github\.com\/[^\s]+)/.exec(output)?.[1];
   assert.ok(link, 'published evidence URL must be visible');
   const match = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/releases\/download\/([^/]+)\/([^/]+)$/.exec(link);
@@ -51,11 +51,11 @@ test('real pi confirms, probes, publishes, excludes another controller and pause
   assert.equal(report.cleanup, 'passed');
   const otherClone = await fixture(t);
   const second = await otherClone.open();
-  assert.match(await second.flow('start 1', true), /FLOW_OWNED/);
+  assert.match(await second.flow('preflight 1', true), /FLOW_OWNED/);
   const boundary = first.notices.length;
   await first.request('new_session');
   assert.match(first.notices.slice(boundary).join('\n'), /FLOW_PAUSED.*session/);
-  assert.match(await second.flow('start 1', false), /CANCELLED/);
+  assert.match(await second.flow('preflight 1', false), /CANCELLED/);
   assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: f.project, encoding: 'utf8' }), '');
   results.push({ scenario: 'confirmed-startup', result: 'passed', evidenceUrl: link, assertions: ['real commands', 'remote bytes verified', 'exclusive controller', 'session pause', 'cancel before probes', 'Git unchanged'] });
 });
@@ -63,7 +63,7 @@ test('real pi confirms, probes, publishes, excludes another controller and pause
 test('real pi rejects unavailable independent-agent authentication', { skip }, async t => {
   const f = await fixture(t, false);
   const pi = await f.open();
-  assert.match(await pi.flow('start 1', true), /AGENT_UNAVAILABLE/);
+  assert.match(await pi.flow('preflight 1', true), /AGENT_UNAVAILABLE/);
   assert.doesNotMatch(await pi.flow('status'), /started/);
   results.push({ scenario: 'agent-readiness-refused', result: 'passed', assertions: ['AGENT_UNAVAILABLE', 'not started'] });
 });
@@ -71,7 +71,7 @@ test('real pi rejects unavailable independent-agent authentication', { skip }, a
 test('real preparation failure cleans up and never claims startup', { skip }, async t => {
   const f = await fixture(t, true, { FLOW_FIXTURE_FAIL_PREPARE: '1' });
   const pi = await f.open();
-  const output = await pi.flow('start 1', true);
+  const output = await pi.flow('preflight 1', true);
   assert.match(output, /COMMAND_FAILED.*prepare/);
   assert.doesNotMatch(output, /FLOW_STARTED/);
   assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: f.project, encoding: 'utf8' }), '');
@@ -88,7 +88,7 @@ test('approval cannot authorize a contract edited while confirmation is open', {
     await writeFile(path, JSON.stringify(contract, null, 2) + '\n');
     return true;
   } });
-  const output = await pi.flow('start 1', true);
+  const output = await pi.flow('preflight 1', true);
   assert.match(output, /PROJECT_UNPREPARED|SCOPE_CHANGED/);
   assert.doesNotMatch(output, /FLOW_STARTED|REVIEW_READY/);
   assert.match(execFileSync('git', ['status', '--porcelain'], { cwd: f.project, encoding: 'utf8' }), /flow.json/);
@@ -108,7 +108,7 @@ for (const action of ['fork', 'tree', 'reload']) {
       },
     });
     assert.equal((await pi.request('prompt', { message: '/fixture-seed' })).success, true);
-    await pi.flow('start 1', true);
+    await pi.flow('preflight 1', true);
     assert.ok(transition, 'confirmation was reached');
     assert.equal((await transition).success, true);
     assert.match(pi.notices.join('\n'), /FLOW_PAUSED/);
@@ -121,7 +121,7 @@ for (const action of ['fork', 'tree', 'reload']) {
 test('a clean probe HEAD change cannot publish evidence for the approved SHA', { skip }, async t => {
   const f = await fixture(t, true, { FLOW_FIXTURE_CHANGE_HEAD: '1' });
   const pi = await f.open();
-  const output = await pi.flow('start 1', true);
+  const output = await pi.flow('preflight 1', true);
   assert.match(output, /PROBE_VERSION_CHANGED/);
   assert.doesNotMatch(output, /FLOW_STARTED|EVIDENCE_URL/);
   const worktrees = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: f.project, encoding: 'utf8' });
@@ -152,13 +152,13 @@ for (const phase of ['cleanup', 'publish']) {
     });
     const pi = await f.open({ extensions: [fileURLToPath(new URL('./fixtures/process-fault-bridge.mjs', import.meta.url))] });
     assert.equal((await pi.request('prompt', { message: `/fixture-process-fault ${phase}` })).success, true);
-    const output = await pi.flow('start 1', true);
+    const output = await pi.flow('preflight 1', true);
     assert.match(output, new RegExp(`FAULT_CHILD_CLOSED: ${phase}`));
     assert.match(output, /PROCESS_UNQUIESCED/);
     assert.doesNotMatch(output, /FLOW_STARTED|EVIDENCE_URL/);
-    assert.match(await pi.flow('status'), /paused/);
+    assert.match(await pi.flow('status'), /stopping/);
     const competitor = await other.open();
-    assert.match(await competitor.flow('start 1', false), /FLOW_OWNED/);
+    assert.match(await competitor.flow('preflight 1', false), /FLOW_OWNED/);
     const worktrees = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: f.project, encoding: 'utf8' });
     assert.equal((worktrees.match(/^worktree /gm) ?? []).length, 2);
     results.push({ scenario: `unquiesced-${phase}`, result: 'passed', boundary: 'real pi and commands; injected process.kill liveness observation only', assertions: ['unknown quiescence preserved', 'competing clone refused', 'probe workspace retained'] });

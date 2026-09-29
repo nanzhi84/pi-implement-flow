@@ -25,9 +25,12 @@ try {
   piVersion = execFileSync(process.env.PI_BIN ?? 'pi', ['--version'], { encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 } catch { /* Missing pi is reported without embedding its configured path. */ }
 const expectedScenarios = remote ? 23 : 2;
-const passed = result.exitCode === 0 && scenarios.length === expectedScenarios;
+const finalSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+const finalDirty = execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim() !== '';
+const sourceStable = finalSha === sha && finalDirty === dirty;
+const passed = result.exitCode === 0 && scenarios.length === expectedScenarios && sourceStable;
 await writeFile('artifacts/preflight.json', JSON.stringify({
-  schema: 1, sha, dirty,
+  schema: 1, sha, dirty, finalSha, finalDirty, sourceStable,
   command: (cliHttp1 ? 'GODEBUG=http2client=0 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.version GIT_CONFIG_VALUE_0=HTTP/1.1 ' : '')
     + (remote ? 'RUN_GITHUB_E2E=1 npm test' : 'npm test'),
   environment: { node: process.version, pi: piVersion, cliTransport: cliHttp1 ? 'HTTP/1.1 (TLS verification unchanged)' : 'environment default' },
