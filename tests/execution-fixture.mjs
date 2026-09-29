@@ -69,22 +69,21 @@ export async function fixture(t, scenario, options = {}) {
     }
   }
   const baseline = git(project, 'rev-parse', 'HEAD');
-  const marker = `T2 acceptance ${scenario} ${Date.now()}`;
+  const marker = `${options.stage ?? 'T2'} acceptance ${scenario} ${Date.now()}`;
   const spec = api(`repos/${repository}/issues`, {
     title: `[Synthetic] ${marker}`,
-    body: `## Problem Statement\n\nIsolated T2 execution acceptance for the existing synthetic greeting CLI. No production data. Preserve the existing project contract, publisher, acceptance fixtures and main branch.\n\n## Acceptance criteria\n\n- Deliver the single Ticket using its explicit behavior contract.\n- Preserve existing Ada greeting and missing-name rejection.\n- Leave Ticket PR unmerged and all Issues open.\n\nThis disposable planning fixture is retained as acceptance evidence.`,
+    body: options.specBody ?? `## Problem Statement\n\nIsolated T2 execution acceptance for the existing synthetic greeting CLI. No production data. Preserve the existing project contract, publisher, acceptance fixtures and main branch.\n\n## Acceptance criteria\n\n- Deliver the single Ticket using its explicit behavior contract.\n- Preserve existing Ada greeting and missing-name rejection.\n- Leave Ticket PR unmerged and all Issues open.\n\nThis disposable planning fixture is retained as acceptance evidence.`,
   });
   created.push({ scenario, kind: 'spec', number: spec.number, url: spec.html_url });
   await persist();
   const requests = {
-    success: 'Change only app.mjs so an input name consisting entirely of whitespace (spaces or tabs) is rejected with exit code 2 and empty stdout. Preserve the exact original spelling and whitespace of every name that contains a non-whitespace character. Preserve the current greeting format and newline rejection. Do not edit fixture.mjs, publish.mjs, AGENTS.md, or .pi/flow.json. The orchestration runner will verify the CLI externally.',
     ambiguity: 'The greeting must become either uppercase HELLO or lowercase hello. No stakeholder has chosen which option. This choice is intentionally unresolved: ask which one is required before the first file edit, then stop with a blocked result. Do not guess and do not alter files.',
     'no-diff': 'The current Ada greeting already satisfies this Ticket. Inspect the requirement and report implementation complete without changing any file. This scenario verifies that the orchestrator refuses to create an empty commit or PR.',
     cancellation: 'This synthetic Ticket will be cancelled while the implementation Agent is running. A model result arriving after cancellation cannot authorize Git or GitHub writes. Do not edit files.',
   };
   const ticket = api(`repos/${repository}/issues`, {
     title: `[Synthetic] ${marker} Ticket`,
-    body: `## What to build\n\n${options.ticketRequest ?? requests[scenario]}\n\nPart of #${spec.number}.\n\n## Acceptance criteria\n\n- ${scenario === 'success' ? 'node app.mjs with a whitespace-only name exits 2 and emits no stdout.' : 'Observe the explicit stop condition described above.'}\n- node app.mjs Ada emits exactly Hello, Ada! followed by one newline.\n- node app.mjs with no name still exits 2.\n\n## Blocked by\n\nNone`,
+    body: options.ticketBody?.(spec.number) ?? `## What to build\n\n${options.ticketRequest ?? requests[scenario]}\n\nPart of #${spec.number}.\n\n## Acceptance criteria\n\n- Observe the explicit stop condition described above.\n- node app.mjs Ada emits exactly Hello, Ada! followed by one newline.\n- node app.mjs with no name still exits 2.\n\n## Blocked by\n\nNone`,
   });
   created.push({ scenario, kind: 'ticket', number: ticket.number, url: ticket.html_url });
   await persist();
@@ -97,10 +96,10 @@ export async function fixture(t, scenario, options = {}) {
       return pi;
     },
     pulls() { return api(`repos/${repository}/pulls?state=all&base=${encodeURIComponent(f.feature)}&per_page=100`); },
-    verifyInvariants() {
+    verifyInvariants(ticketState = 'open') {
       assert.equal(api(`repos/${repository}/branches/main`).commit.sha, baseline, 'remote main must be unchanged');
       assert.equal(api(`repos/${repository}/issues/${spec.number}`).state, 'open');
-      assert.equal(api(`repos/${repository}/issues/${ticket.number}`).state, 'open');
+      assert.equal(api(`repos/${repository}/issues/${ticket.number}`).state, ticketState);
       assert.equal(git(project, 'rev-parse', 'HEAD'), baseline, 'original checkout HEAD must be unchanged');
       assert.equal(git(project, 'status', '--porcelain'), '', 'original checkout must remain clean');
     },

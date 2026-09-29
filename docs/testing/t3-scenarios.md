@@ -1,6 +1,6 @@
 # T3 外部行为验收约定（实现前）
 
-状态：场景设计，尚未实现或执行。对应 Issue #4；#3 交付后才开始 T3 实施。本文不得作为通过记录。
+状态：实现前定义的场景约定，现已提供测试入口。对应 Issue #4；实际执行以绑定提交的验收报告为准。本文不得作为通过记录。
 
 协议见 [ADR 0003](../adr/0003-gated-integration.md)。通过真实 pi `/flow start SPEC` 入口驱动隔离的合成 GitHub 项目，观察实际分支、Issues、PR、项目行为和远端工件。不使用模块内部结构测试替代这些断言，不修改生产数据或源仓库 main。
 
@@ -40,4 +40,5 @@
 - 每次产出可重复生成的脱敏报告：精确命令、环境与数据前提、实现仓库 SHA/dirty、合成项目 H/B/C/M、所选及跳过场景、逐项断言、最终 runner 退出结果、远端 Issue/PR/工件链接、注入边界和未验证项。
 - 最终交付证据必须绑定实际交付的代码版本；dirty 调试报告不冒充提交版本的验收结果。源码版本变化后按受影响行为重新验证。
 - 工件不得包含凭据、原始模型会话、个人路径、生产数据或未经处理的 stderr。失败现场保留；公开证据与本地私有定位信息分开。不能为清理场景删除仍需核对的成果。
-- T3 尚无可运行验收命令。实施时在本文件补充经实际验证的命令和前提，再以生成的报告记录结果；不要提前填写成功计数或链接。
+- 入口：`PI_BIN=/path/to/openai-capable/pi PI_PROVIDER=openai PI_MODEL=gpt-6-astra RUN_GITHUB_E2E=1 npm run test:integration`。`FLOW_INTEGRATION_SCENARIO` 可选择单一场景。主机 pi 0.99.1 提供当前 OpenAI 认证；开发 SDK 0.87.1 单独记录。
+- 当前最小套件为 8 个场景：real-integration、accept-failure、review-rejects-self-approval、evidence-unavailable、stale-head、stale-base、actual-merge-recheck-fails、base-race-after-final-read；原生 required review 拒绝复用同 SHA 的 T1 测试。表中其余时序由后续生命周期/恢复 Ticket 验证，不把设计表视为全部已通过。

@@ -14,7 +14,7 @@ export interface ExecutionInput {
   contract: Contract; scopeDigest: string; ctx: ExtensionContext; signal: AbortSignal;
   assertScope(): Promise<void>;
 }
-export interface TicketResult { number: number; state: 'blocked' | 'paused'; pr?: PullRequest; }
+export interface TicketResult { number: number; state: 'blocked' | 'paused' | 'delivered' | 'integrated-unaccepted'; pr?: PullRequest; }
 
 export async function executeFirstTicket(input: ExecutionInput): Promise<TicketResult> {
   const { cwd, repository, feature, base, plan, contract, ctx, signal } = input;

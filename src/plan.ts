@@ -10,6 +10,16 @@ export interface Plan {
   tickets: TicketPlan[];
 }
 
+// Lifecycle state is observed separately from immutable requirements. A verified
+// controller closure must not change the authorization for the original content.
+// Excluding state never makes a closed Issue proof that its PR was integrated.
+export function planScope(plan: Plan) {
+  const content = ({ state: _state, ...issue }: Issue) => issue;
+  return { spec: content(plan.spec), tickets: plan.tickets.map(ticket => ({
+    issue: content(ticket.issue), dependencies: ticket.dependencies,
+  })) };
+}
+
 // Deliberately a documented planning format, not an attempt to infer requirements
 // from arbitrary prose. Semantic completeness still requires user confirmation.
 function section(issue: Issue, names: string[]): string | undefined {

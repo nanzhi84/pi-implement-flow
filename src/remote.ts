@@ -15,17 +15,20 @@ function validComment(value: unknown, repository: string, number: number): value
   if (!value || typeof value !== 'object') return false;
   const item = value as Comment;
   return Number.isSafeInteger(item.id) && item.id > 0 && typeof item.body === 'string'
-    && item.html_url === `https://github.com/${repository}/issues/${number}#issuecomment-${item.id}`
+    && [`https://github.com/${repository}/issues/${number}#issuecomment-${item.id}`,
+      `https://github.com/${repository}/pull/${number}#issuecomment-${item.id}`].includes(item.html_url)
     && typeof item.user?.login === 'string';
 }
-function validPull(value: unknown, repository: string): value is PullRequest {
+function validPull(value: unknown, repository: string, details = false): value is PullRequest {
   if (!value || typeof value !== 'object') return false;
   const pr = value as PullRequest;
   return Number.isSafeInteger(pr.number) && pr.number > 0
     && pr.html_url === `https://github.com/${repository}/pull/${pr.number}`
     && ['open', 'closed'].includes(pr.state) && typeof pr.draft === 'boolean' && typeof pr.body === 'string'
     && [pr.head, pr.base].every(ref => ref && typeof ref.ref === 'string' && /^[a-f0-9]{40}$/.test(ref.sha)
-      && ref.repo?.full_name?.toLowerCase() === repository.toLowerCase());
+      && ref.repo?.full_name?.toLowerCase() === repository.toLowerCase())
+    && (!details || (typeof pr.merged === 'boolean'
+      && (pr.merge_commit_sha === null || /^[a-f0-9]{40}$/.test(pr.merge_commit_sha))));
 }
 
 // Each write is one request. Failure is unknown, never an invitation to retry.
@@ -38,7 +41,7 @@ export class Remote {
     let primary: unknown;
     let sent = false;
     try {
-      const args = ['gh', 'api', '--hostname', 'github.com', '--method', method, `repos/${this.repository}/${path}`];
+      const args = ['gh', 'api', '--hostname', 'github.com', '--method', method, `repos/${this.repository}${path ? `/${path}` : ''}`];
       if (body !== undefined) {
         temporary = await mkdtemp(join(tmpdir(), 'pi-flow-request-'));
         const file = join(temporary, 'request.json');
@@ -92,7 +95,7 @@ export class Remote {
   }
   async pull(number: number) {
     const pr = await this.api<PullRequest>(`pulls/${number}`);
-    if (!validPull(pr, this.repository) || pr.number !== number) throw new PreflightError('REMOTE_INVALID', 'Unexpected PR response');
+    if (!validPull(pr, this.repository, true) || pr.number !== number) throw new PreflightError('REMOTE_INVALID', 'Unexpected PR response');
     return pr;
   }
   async pulls(head: string, base: string): Promise<PullRequest[]> {
@@ -118,6 +121,52 @@ export class Remote {
       if ((this.signal?.aborted && error === this.signal.reason)
         || (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED')) throw error;
       throw new PreflightError('REMOTE_RESULT_UNKNOWN', 'PR write or its readback was not confirmed; preserve work and reconcile the exact head/base PR');
+    }
+  }
+
+  async requireMergeStrategy(): Promise<void> {
+    const repo = await this.api<{ allow_merge_commit?: unknown }>('');
+    if (repo?.allow_merge_commit !== true) throw new PreflightError('MERGE_STRATEGY_UNSUPPORTED', 'Repository must permit explicit merge commits; do not substitute squash/rebase or bypass policy');
+  }
+
+  async ready(number: number): Promise<PullRequest> {
+    this.signal?.throwIfAborted();
+    try {
+      await run(['gh', 'pr', 'ready', String(number), '--repo', this.repository], {
+        cwd: this.cwd, timeoutMs: 30_000, label: 'Ticket PR ready',
+      });
+      const actual = await this.pull(number);
+      if (actual.draft || actual.state !== 'open') throw new Error('Ready readback differs');
+      return actual;
+    } catch (error) {
+      if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
+      throw new PreflightError('REMOTE_RESULT_UNKNOWN', 'Ticket PR ready outcome unconfirmed; reconcile the exact PR before further writes');
+    }
+  }
+
+  async merge(number: number, H: string): Promise<string> {
+    const result = await this.api<{ merged?: unknown; sha?: unknown }>(`pulls/${number}/merge`, 'PUT', {
+      sha: H, merge_method: 'merge', commit_title: `Integrate verified Ticket PR #${number}`,
+    });
+    if (!result || result.merged !== true || typeof result.sha !== 'string' || !/^[a-f0-9]{40}$/.test(result.sha)) {
+      throw new PreflightError('REMOTE_RESULT_UNKNOWN', 'Merge response does not confirm the exact applied commit; never repeat an uncertain merge');
+    }
+    return result.sha;
+  }
+
+  async closeIssue(number: number): Promise<void> {
+    const written = await this.api<{ number?: unknown; state?: unknown; state_reason?: unknown; pull_request?: unknown }>(`issues/${number}`, 'PATCH', {
+      state: 'closed', state_reason: 'completed',
+    });
+    if (written?.number !== number || written.state !== 'closed' || written.state_reason !== 'completed' || written.pull_request) {
+      throw new PreflightError('REMOTE_RESULT_UNKNOWN', 'Issue closure response does not confirm the intended Ticket');
+    }
+    try {
+      const actual = await this.api<{ number?: unknown; state?: unknown; state_reason?: unknown; pull_request?: unknown }>(`issues/${number}`);
+      if (actual?.number !== number || actual.state !== 'closed' || actual.state_reason !== 'completed' || actual.pull_request) throw new Error('Closure readback differs');
+    } catch (error) {
+      if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
+      throw new PreflightError('REMOTE_RESULT_UNKNOWN', 'Issue closure readback unavailable; distinguish applied integration from pending closure');
     }
   }
 }
