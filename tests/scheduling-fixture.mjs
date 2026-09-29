@@ -22,7 +22,7 @@ export async function graphFixture(t, scenario) {
   await assert.rejects(access(socket), { code: 'ENOENT' });
   const harness = await schedulingHarness(scenario);
   let pi;
-  t.after(async () => { await pi?.close(); await harness.close(); });
+  t.after(async () => { try { await pi?.close(); } finally { await harness.close(); } });
   const fixed = scenario === names[0] ? undefined : await schedulingProvider(t, scenario, harness);
   const requirement = requests(scenario);
   const f = await fixture(t, scenario, { stage: 'T4', fixed, preserveOnPass: true,
@@ -44,7 +44,7 @@ export async function graphFixture(t, scenario) {
   let confirmation;
   pi = await f.open({ timeoutMs: 2_600_000, onConfirm: event => { confirmation = event.message; return true; },
     extensions: [fileURLToPath(new URL('./fixtures/scheduling-bridge.mjs', import.meta.url))] });
-  const configured = await pi.request('prompt', { message: `/fixture-scheduling ${JSON.stringify({ repository, scenario, url: harness.url, tickets: Object.values(tickets).map(item => item.number) })}` });
+  const configured = await pi.request('prompt', { message: `/fixture-scheduling ${JSON.stringify({ repository, scenario, spec: f.spec.number, url: harness.url, tickets: Object.values(tickets).map(item => item.number) })}` });
   assert.equal(configured.success, true);
   // pi teardown is registered by fixture before this hook. Preserve remote/Git
   // facts; remove only this scenario's now-unowned socket, never another owner.
@@ -58,6 +58,8 @@ export async function graphFixture(t, scenario) {
   const verifiedGates = new Map();
   const apiResult = { ...f, tickets, scenario, contract, fixed,
     get confirmation() { return confirmation; },
+    status: () => pi.flow('status'),
+    waitCleanupHold: () => harness.waitCleanup(), releaseCleanup: () => harness.releaseCleanup(),
     async run() { const output = await pi.flow(`start ${f.spec.number} --concurrency 2`, true); fixed?.assertHealthy(); return output; },
     async observe() {
       assert.equal((await pi.request('prompt', { message: '/fixture-scheduling-flush' })).success, true);
@@ -101,6 +103,17 @@ export async function graphFixture(t, scenario) {
       }
       return true;
     },
+    async verifyUnknownStop(push) {
+      assert.equal(push.ticket, tickets.A.number);
+      const remote = api(`repos/${repository}/git/ref/heads/${push.branch}`); assert.equal(remote.object.sha, push.sha);
+      assert.equal(git(f.project, 'rev-parse', `refs/heads/${push.branch}`), push.sha);
+      const branches = api(`repos/${repository}/branches?per_page=100`);
+      assert.ok(!branches.some(item => item.name === `flow/ticket-${f.spec.number}-${tickets.B.number}`));
+      assert.equal(apiResult.branchHead(), f.baseline); assert.equal(f.pulls().length, 0);
+      for (const ticket of Object.values(tickets)) assert.equal(api(`repos/${repository}/issues/${ticket.number}`).state, 'open');
+      assert.equal(api(`repos/${repository}/pulls?state=all&head=${encodeURIComponent(`nanzhi84:${f.feature}`)}&base=main`).length, 0);
+      f.verifyInvariants();
+    },
     async verifyEnd() {
       f.verifyInvariants(api(`repos/${repository}/issues/${f.ticket.number}`).state);
       const total = api(`repos/${repository}/pulls?state=all&head=${encodeURIComponent(`nanzhi84:${f.feature}`)}&base=main`);
@@ -119,14 +132,14 @@ export async function graphFixture(t, scenario) {
   };
   return apiResult;
 }
-export function verifyActivities(observed, capacity) {
+export function verifyActivities(observed, capacity, pending = false) {
   const active = new Map(); let peak = 0;
   for (const item of observed.activities) {
     const key = `${item.ticket}/${item.phase}/${item.kind}/${item.codeSha}`;
     if (item.event === 'start') { assert.ok(!active.has(key)); active.set(key, item); peak = Math.max(peak, active.size); assert.ok(active.size <= capacity); }
     else { assert.ok(active.has(key)); assert.equal(item.event, 'end', 'no hidden retained activity in successful scheduling assertions'); active.delete(key); }
   }
-  assert.equal(active.size, 0); assert.ok(peak > 0);
+  if (!pending) assert.equal(active.size, 0); assert.ok(peak > 0);
   for (const command of observed.commands) {
     const start = observed.activities.find(item => item.ticket === command.ticket && item.phase === command.phase && item.kind === command.command && item.event === 'start');
     const end = observed.activities.find(item => item.ticket === command.ticket && item.phase === command.phase && item.kind === command.command && item.event === 'end');

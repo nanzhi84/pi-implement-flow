@@ -16,3 +16,7 @@
 端口只在前台批准命令内部启动、实际访问、关闭并等待结束，禁止 prepare 后台启动后返回，保持现有 process-group orphan 协议。屏障等待实际事件，不用固定 sleep 制造并行。每次 runner 保存初末源 SHA/clean/指纹、宿主/模型、实际远端仓库 baseline、图/PR/H-B-C-M/工件原始哈希、重叠和资源断言、故障边界、最终退出状态。失败现场和历史报告保留；不包含 auth、真实凭据、原始模型会话或私有路径。
 
 本票不自动修复冲突、不恢复旧 flow、不完成最终 Spec；全部本轮可交付票完成后总 PR 仍 Draft、Spec open、main 不变。按受影响边界复用既有真实 integration、取消、scope/生命周期及 unknown-write 验收；不新增实现镜像单元测试。
+
+## 独立审查前补充的并行停止边界
+
+`parallel-unknown-retains-cleanup` 在真实两个实现会话重叠时，让 A 的 Ticket push 实际成功后 CLI 返回失败，且 pi 进程内该精确 ref 的 ls-remote 回读也明确不可用（外部验收独立读真实 ref），B 的模型响应尚未完成。必须先冻结普通派工并取消 B，B 的 cleanup 仍由同一活动池允许。事件屏障在 cleanup 未结束时检查资源未提前释放、竞争 controller 无法取得仓库。释放屏障后，真实 cleanup 命令先运行，再由可控故障重新留下合成资源并返回失败；B 资源必须 retained，首个 remote unknown 不能被后续 cleanup/cancel 覆盖。断言只有 feature 与 A Ticket 两次 push、没有 PR/merge/close、A 远端实际 SHA 保留、B 无远端分支、Spec/Tickets open、main 不变。该新增场景补的是并行冻结与清理的实际组合缺口，不是实现镜像单测；固定 HTTP 与失败注入均显式披露。

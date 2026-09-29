@@ -198,12 +198,12 @@ with `RUN_GITHUB_E2E=1 PI_PROVIDER=openai PI_MODEL=gpt-6-astra` and explicit
 `PI_BIN`; the runner selects the dedicated isolated/exclusive fixture repository
 for each scenario and records its fixed baseline. `FLOW_SCHEDULING_SCENARIO`
 selects one named case. Effective localhost proxy bypass is required for the
-three controlled fixed-model scenarios and resource observer.
+four controlled fixed-model scenarios and resource observer.
 
 The real OpenAI A/B→C path checks overlapping roles, actual command-owned
 loopback ports/data, exact dependency ancestry, every C/M gate and remote CLI
-behavior. Three deterministic model cases cover same-file independent Tickets
-and local ambiguity, exclusive shared resources, and latest-base semantic failure.
+behavior. Four deterministic model cases cover same-file independent Tickets
+and local ambiguity, exclusive shared resources, latest-base semantic failure, and parallel unknown-write/failed-cleanup retention.
 Reports in `artifacts/scheduling.json` include exact source fingerprints, runtime,
 exit statuses, GitHub versions and downloaded hashes. Source/type checks or a
 skipped local run do not constitute remote acceptance.

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { assertRepositoryIdentity, repository } from '../acceptance-repository.mjs';
 
 export default function bridge(pi) {
-  const originalSpawn = childProcess.spawn; let installed = false; let notify; let ui; let config; let queue = Promise.resolve(); let failure;
+  const originalSpawn = childProcess.spawn; let installed = false; let notify; let ui; let config; let unknownRef; let queue = Promise.resolve(); let failure;
   const event = value => {
     queue = queue.then(async () => { const result = await fetch(`${config.url}/event`, { method: 'POST', body: JSON.stringify(value) }); if (!result.ok) throw new Error('Observer rejected event'); }).catch(error => { failure = error; });
   };
@@ -21,8 +21,27 @@ export default function bridge(pi) {
     childProcess.spawn = function(command, args, options) {
       const ticket = Number(options?.env?.FLOW_TICKET); const phase = options?.env?.FLOW_STAGE;
       const projectCommand = Array.isArray(args) && args[0] === 'fixture.mjs' && config.tickets.includes(ticket);
+      const gitPush = command === 'git' && args[0] === 'push';
+      if (gitPush) event({ type: 'git-write', operation: 'push' });
+      if (config.scenario === 'parallel-unknown-retains-cleanup' && command === 'git') {
+        const target = args.find(value => typeof value === 'string' && value.endsWith(`:refs/heads/flow/ticket-${config.spec}-${config.tickets[0]}`));
+        const blockReadback = unknownRef && args[0] === 'ls-remote' && args.includes(unknownRef);
+        if ((gitPush && target) || blockReadback) {
+          const script = fileURLToPath(new URL('./scheduling-push-fault.mjs', import.meta.url));
+          if (blockReadback) event({ type: 'unknown-readback-refused', ref: unknownRef });
+          const child = originalSpawn.call(this, process.execPath,
+            [script, blockReadback ? 'readback-unavailable' : 'push-unknown', config.url, String(config.tickets[0]), command, ...args], options);
+          if (!blockReadback) {
+            let output = '';
+            child.stdout?.on('data', chunk => { output += chunk; const match = /SCHEDULING_PUSH_APPLIED: (\{[^\n]+\})/.exec(output);
+              if (match) unknownRef = `refs/heads/${JSON.parse(match[1]).branch}`; });
+          }
+          return child;
+        }
+      }
       if (command === 'gh' && args[0] === 'api') {
         const path = args.find(value => typeof value === 'string' && value.startsWith(`repos/${repository}/`));
+        if (['POST', 'PATCH', 'PUT', 'DELETE'].some(method => args.includes(method))) event({ type: 'github-write', path });
         if (path?.endsWith('/merge') && args.includes('PUT')) event({ type: 'merge', pr: Number(path.split('/').at(-2)) });
         if (/\/issues\/\d+$/.test(path ?? '') && args.includes('PATCH')) event({ type: 'close', ticket: Number(path.split('/').at(-1)) });
       }

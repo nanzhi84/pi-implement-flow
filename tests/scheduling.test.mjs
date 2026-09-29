@@ -84,3 +84,30 @@ test('B is revalidated on latest accepted A and semantic failure cannot reuse ol
   f.pass({ delivery: a, refusedHead: b.head.sha, candidate: attempted, assertions: ['B old starting tree passes external behavior',
     'candidate uses latest accepted A base', 'actual composed behavior fails despite no textual conflict', 'no B merge/closure or stale eligibility'] });
 });
+
+test('unknown push freezes parallel work while failed cleanup retains its resource and ownership', options('parallel-unknown-retains-cleanup'), async t => {
+  const f = await graphFixture(t, 'parallel-unknown-retains-cleanup');
+  const running = f.run();
+  await f.waitCleanupHold();
+  const held = await f.observe(); verifyActivities(held, 2, true);
+  assert.ok(held.resources.unknownPush, 'the remote push really applied before the transport fault');
+  const before = held.events.filter(item => item.type === 'notice' && item.message.startsWith('FLOW_RESOURCE: ')).map(item => JSON.parse(item.message.slice('FLOW_RESOURCE: '.length)));
+  assert.ok(!before.some(item => item.ticket === f.tickets.B.number && item.event === 'released'));
+  const competitor = await f.open();
+  assert.match(await competitor.flow(`start ${f.spec.number}`, true), /FLOW_OWNED:/);
+  f.releaseCleanup();
+  const output = await running; const observed = await f.observe(); verifyActivities(observed, 2);
+  assert.match(output, /REMOTE_RESULT_UNKNOWN:/); assert.match(await f.status(), /stopping/);
+  const resources = observed.events.filter(item => item.type === 'notice' && item.message.startsWith('FLOW_RESOURCE: ')).map(item => JSON.parse(item.message.slice('FLOW_RESOURCE: '.length)));
+  assert.ok(resources.some(item => item.ticket === f.tickets.B.number && item.event === 'retained'));
+  assert.ok(!resources.some(item => item.ticket === f.tickets.B.number && item.event === 'released'));
+  assert.equal(observed.events.filter(item => item.type === 'git-write').length, 2);
+  assert.equal(observed.events.filter(item => item.type === 'github-write').length, 0);
+  assert.ok(observed.commands.some(item => item.ticket === f.tickets.B.number && item.command === 'cleanup' && item.exitCode === 1));
+  await f.verifyUnknownStop(observed.resources.unknownPush);
+  assert.match(await competitor.flow(`start ${f.spec.number}`, true), /FLOW_OWNED:/);
+  f.pass({ remotePush: observed.resources.unknownPush, assertions: ['actual remote push preserved once',
+    'parallel model result cancelled without another write', 'cleanup uses normal activity capacity after freeze',
+    'resource never released before or after failed cleanup', 'controller ownership retained and competitor refused',
+    'unknown remains primary; no PR/merge/closure; main and Issues unchanged'] });
+});

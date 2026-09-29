@@ -35,6 +35,10 @@ export async function schedulingProvider(t, scenario, harness) {
         else if (!tools.length) calls = files[key];
         else {
           for (const tool of tools) assert.doesNotMatch(textContent(tool), /Error:|not found|Tool error/);
+          if (scenario === 'parallel-unknown-retains-cleanup') {
+            if (key === 'B') { harness.markBPending(); await harness.waitCleanup(); }
+            if (key === 'A') await harness.waitBPending();
+          }
           if (scenario === 'latest-base-semantic-conflict' && key === 'B') await harness.waitDelivery(tickets.A.number);
           answer = { kind: 'implemented', summary: `Implemented the exact synthetic ${key} requirement with real SDK file tools.` };
         }

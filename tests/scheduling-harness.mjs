@@ -5,6 +5,8 @@ import { createServer } from 'node:http';
 // listeners are separately owned and closed inside scheduling-command.mjs.
 export async function schedulingHarness(scenario) {
   let sequence = 0; let failure; let tickets = {}; let owner;
+  let unknownPush; let cleanupResponse; let bPending = false;
+  const pendingBWaiters = []; const cleanupWaiters = [];
   const events = []; const pairs = []; const leases = []; const conflicts = [];
   const waitingPair = []; const deliveries = new Set(); const deliveryWaiters = new Map();
   const submitted = new Set(); const pendingCandidates = []; let reviewWhileHeld = false;
@@ -43,6 +45,12 @@ export async function schedulingHarness(scenario) {
           assert.notEqual(pair[0].port, pair[1].port); pairs.push(pair);
           waitingPair.splice(0).forEach(entry => respond(entry.response));
         }
+      } else if (req.url === '/unknown-applied') {
+        assert.equal(value.ticket, tickets.A.number); assert.match(value.sha, /^[a-f0-9]{40}$/);
+        unknownPush = { ...value, sequence: current }; respond(res);
+      } else if (req.url === '/cleanup-hold') {
+        assert.equal(value.ticket, tickets.B.number); assert.ok(unknownPush);
+        cleanupResponse = res; cleanupWaiters.splice(0).forEach(resolve => resolve());
       } else if (req.url === '/acquire') {
         if (owner) { conflicts.push({ previous: owner.ticket, next: value.ticket }); throw new Error('Shared namespace overlap'); }
         owner = { ticket: value.ticket, phase: value.phase, acquired: current }; leases.push(owner); respond(res);
@@ -58,7 +66,11 @@ export async function schedulingHarness(scenario) {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   return { url: `http://127.0.0.1:${server.address().port}`, setup(value) { tickets = value; }, sequence: () => ++sequence,
     waitDelivery(ticket) { if (deliveries.has(ticket)) return Promise.resolve(); return new Promise(resolve => { const waits = deliveryWaiters.get(ticket) ?? []; waits.push(resolve); deliveryWaiters.set(ticket, waits); }); },
-    snapshot() { if (failure) throw failure; return { events, resources: { isolatedPairs: pairs, leases, conflicts, reviewWhileHeld } }; },
+    markBPending() { bPending = true; pendingBWaiters.splice(0).forEach(resolve => resolve()); },
+    waitBPending() { return bPending ? Promise.resolve() : new Promise(resolve => pendingBWaiters.push(resolve)); },
+    waitCleanup() { return cleanupResponse ? Promise.resolve() : new Promise(resolve => cleanupWaiters.push(resolve)); },
+    releaseCleanup() { assert.ok(cleanupResponse); respond(cleanupResponse); cleanupResponse = undefined; },
+    snapshot() { if (failure) throw failure; return { events, resources: { isolatedPairs: pairs, leases, conflicts, reviewWhileHeld, ...(unknownPush ? { unknownPush } : {}) } }; },
     async close() { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); },
   };
 }

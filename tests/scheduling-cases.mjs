@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-export const names = ['real-openai-diamond', 'slot-release-and-local-block', 'exclusive-real-resource', 'latest-base-semantic-conflict'];
+export const names = ['real-openai-diamond', 'slot-release-and-local-block', 'exclusive-real-resource', 'latest-base-semantic-conflict', 'parallel-unknown-retains-cleanup'];
 export const baselines = {
   'nanzhi84/pi-implement-flow-scheduling-acceptance': '5b409de584751530811f3e652de614389121c211',
   'nanzhi84/pi-implement-flow-exclusive-acceptance': '485b0ddfecbfed0fc6248fdad63454c792902f03',
@@ -17,6 +17,10 @@ export function requests(scenario) {
     B: 'In fixture.mjs accept branch, immediately before the final process.stdout.write of the acceptance envelope, add a real CLI assertion that accepted name "Zoë" preserves Unicode. Preserve every original check and output envelope. Only fixture.mjs changes; this is additive coverage for existing behavior. A and B have no declared business dependency despite editing the same file.',
     D: 'The stakeholder has not chosen whether a new formatter should use dashes or underscores. This intentionally unresolved requirement is a local blocked case: ask which is required before any edit and return blocked. Do not guess, modify files, or create a PR.',
     E: 'After D is delivered, implement its chosen formatter. No choice has yet been approved. Never start before D has verified delivery.',
+  };
+  if (scenario === names[4]) return {
+    A: 'Add alpha.mjs printing exactly alpha followed by newline. Only alpha.mjs may change. This isolated fault fixture will lose confirmation of an applied Ticket push; preserve all effects and stop without replay.',
+    B: 'Add beta.mjs printing exactly beta followed by newline. Only beta.mjs may change. Its model transport will stay pending while the other Ticket gets an unknown write. Cancellation and cleanup must precede any later delivery; no late model result authorizes a write.',
   };
   if (scenario === names[2]) return {
     A: 'Add alpha.mjs: node alpha.mjs prints exactly alpha followed by newline. Only alpha.mjs may change. Existing behavior and tests remain intact. This synthetic boundary checks exclusive shared project resources during implementation and independent gates.',
@@ -39,7 +43,7 @@ export async function fixedFiles(project, scenario) {
     if (a === source || b === source) throw new Error('Known additive fixture baseline required');
     return { A: [write('fixture.mjs', a)], B: [write('fixture.mjs', b)] };
   }
-  if (scenario === names[2]) return { A: [write('alpha.mjs', "console.log('alpha');\n")], B: [write('beta.mjs', "console.log('beta');\n")] };
+  if ([names[2], names[4]].includes(scenario)) return { A: [write('alpha.mjs', "console.log('alpha');\n")], B: [write('beta.mjs', "console.log('beta');\n")] };
   return {
     A: [write('acceptance/policy.mjs', "import assert from 'node:assert/strict';\nimport {readFileSync} from 'node:fs';\nassert.equal(JSON.parse(readFileSync('policy.json','utf8')).prefix,'HELLO');\nconsole.log(JSON.stringify({passed:true,assertions:[{name:'policy-prefix',passed:true}]}));\n"), write('policy.json', '{"prefix":"HELLO"}\n')],
     B: [write('acceptance/semantic.mjs', cliAssertion('semantic-original', 'semantic.mjs', 'Hello, Ada!\n')), write('semantic.mjs', "import {existsSync,readFileSync} from 'node:fs';\nconst prefix=existsSync('policy.json')?JSON.parse(readFileSync('policy.json','utf8')).prefix:'Hello';\nconsole.log(`${prefix}, ${process.argv[2]}!`);\n")],
