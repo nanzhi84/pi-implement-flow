@@ -1,11 +1,13 @@
 import { PreflightError } from './contract.ts';
 import { ensureDraftTotal, type ExecutionInput, type TicketResult } from './execution.ts';
-import { ticketGate, ReviewBlocked, type GateEvidence, type Versions } from './gate.ts';
+import { ticketGate, type GateEvidence, type Versions } from './gate.ts';
 import { GitHub } from './github.ts';
 import { Remote, type PullRequest } from './remote.ts';
 import { reviewBlockerComment } from './review.ts';
 import { git } from './process.ts';
 import { requireRemoteHead, remoteHead } from './ticket-workspace.ts';
+import { reviewedCandidate } from './candidate.ts';
+import { isGateDefect } from './gate-defect.ts';
 
 export interface IntegrationFacts {
   ticket: number; M: string; phase: 'merged-unaccepted' | 'closure-pending' | 'closed-unaccepted' | 'delivered';
@@ -31,36 +33,31 @@ export async function integrateTicket(input: ExecutionInput, submitted: TicketRe
   const { cwd, signal, ctx } = input;
   const remote = new Remote(cwd, input.repository, signal);
   const github = await GitHub.fromOrigin(cwd);
-  const H = submitted.pr.head.sha;
   const B = await remoteHead(cwd, input.feature);
-  if (!B || B !== input.base) throw new PreflightError('REMOTE_DRIFT', 'Feature changed outside this single-Ticket controller; preserve work and reconcile');
-  await input.assertScope();
-  await github.inspectProtection(input.feature);
-  await remote.requireMergeStrategy();
-  const before = await remote.pull(submitted.pr.number);
-  expectedPull(before, input, ticket.issue.number, H);
-  if (before.merged || before.state !== 'open' || before.base.sha !== B || !before.merge_commit_sha) {
-    throw new PreflightError('CANDIDATE_UNAVAILABLE', 'A current open PR with a verifiable GitHub merge candidate is required; no retry or guessed candidate');
-  }
-  const C = before.merge_commit_sha;
-  // Fetch the exact remote object, never use mutable FETCH_HEAD as the identity.
-  await git(cwd, ['fetch', '--no-write-fetch-head', 'origin', C], signal);
-  if (JSON.stringify(await parents(cwd, C)) !== JSON.stringify([B, H])) {
-    throw new PreflightError('EVIDENCE_STALE', 'GitHub merge candidate does not have the current ordered base/head parents');
-  }
-  const versions: Versions = { H, B, C };
+  if (!B || B !== input.base) throw new PreflightError('REMOTE_DRIFT', 'Feature changed outside this controller; preserve work and reconcile');
+  if (!submitted.ownedWorkspace || !submitted.implementationEvidence) throw new PreflightError('WORKSPACE_REQUIRED', 'Submitted code must retain its exclusively owned workspace and complete proof');
+  const validated = await reviewedCandidate(input, {
+    number: submitted.number, ticket, startedFrom: submitted.implementationEvidence.origin,
+    pr: submitted.pr, ownedWorkspace: submitted.ownedWorkspace, implementationEvidence: submitted.implementationEvidence,
+  }, B);
+  const { before, versions, candidate, submission } = validated;
+  const { H, C } = versions;
   const reviewedGate = async (current: Versions, phase: 'candidate' | 'actual') => {
-    try { return await ticketGate(input, ticket, current, phase, submitted.implementationEvidence); }
+    try { return await ticketGate(input, ticket, current, phase, submission.implementationEvidence, { previousBlockers: validated.previousBlockers }); }
     catch (error) {
-      if (error instanceof ReviewBlocked && !signal.aborted) {
+      if (isGateDefect(error) && !signal.aborted) {
         const codeSha = phase === 'candidate' ? current.C : current.M!;
-        const findings = await remote.comment(before.number, reviewBlockerComment(ticket.issue.number, phase, error.review));
+        const body = (error.review.blockers.length || error.review.resolutions?.some(item => item.status === 'unresolved')
+          ? reviewBlockerComment(ticket.issue.number, phase, error.review)
+          : `Actual-version behavior failed for Ticket #${ticket.issue.number}. Version: ${codeSha}; Scope: ${input.scopeDigest}. Remote merge already happened; no closure or downstream release is authorized.`)
+          + `\n\nVerified failure evidence: ${error.binding.evidence.url}\nSHA256: ${error.binding.evidence.sha256}`;
+        if (Buffer.byteLength(body, 'utf8') > 60_000) throw new PreflightError('EVIDENCE_CAPACITY', 'Complete actual failure index exceeds the remote publication contract');
+        const findings = await remote.comment(before.number, body);
         ctx.ui.notify(`REVIEW_FINDINGS: ${phase} ${codeSha} ${findings.html_url}`, 'error');
       }
       throw error;
     }
   };
-  const candidate = await reviewedGate(versions, 'candidate');
   await input.assertScope();
   await requireRemoteHead(cwd, input.feature, B);
   let latest = await remote.pull(before.number);

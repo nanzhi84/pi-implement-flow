@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { api, fixture, git, repository, runGreeting } from './execution-fixture.mjs';
 import { implementationFiles, integrationProvider } from './integration-provider.mjs';
+import { verifyProof } from './repair-proof.mjs';
 export { api, git, repository };
 export const names = ['real-integration', 'accept-failure', 'review-rejects-self-approval', 'evidence-unavailable',
   'stale-head', 'stale-base', 'actual-merge-recheck-fails', 'actual-review-blockers-recorded', 'base-race-after-final-read', 'review-response-too-large'];
@@ -85,40 +86,18 @@ export function assertNoDelivery(f, output, expectedFeature = f.baseline) {
 }
 function verifyImplementationEvidence(f, report) {
   const proof = report.implementationEvidence;
-  assert.equal(proof.source, 'controller-worktree-writes');
-  assert.equal(proof.baseline, f.baseline);
+  assert.equal(proof.origin, f.baseline);
   assert.equal(proof.head, report.versions.H);
   assert.equal(proof.scopeDigest, report.scopeDigest);
-  for (const sha of [proof.baseline, proof.head, report.codeSha]) assert.match(sha, /^[a-f0-9]{40}$/);
-  // The shared git() helper trims text; raw bytes are required to retain final newlines.
+  verifyProof(f.project, proof, report.codeSha);
   const raw = (...args) => execFileSync('git', args, { cwd: f.project,
     stdio: ['ignore', 'pipe', 'pipe'], timeout: 120_000, maxBuffer: 8 * 1024 * 1024 });
-  raw('fetch', '--quiet', 'origin', ...new Set([proof.baseline, proof.head, report.codeSha]));
-  const trees = new Map(); const digests = new Map();
-  const digest = (sha, path) => {
-    if (!trees.has(sha)) trees.set(sha, new Set(raw('ls-tree', '-r', '--name-only', '-z', sha).toString('utf8').split('\0').filter(Boolean)));
-    if (!trees.get(sha).has(path)) return null;
-    const key = `${sha}:${path}`;
-    if (!digests.has(key)) digests.set(key, createHash('sha256').update(raw('show', key)).digest('hex'));
-    return digests.get(key);
-  };
-  const changed = raw('diff', '--name-only', '-z', '--no-renames', proof.baseline, proof.head, '--').toString('utf8').split('\0').filter(Boolean);
+  const changed = raw('diff', '--name-only', '-z', '--no-renames', proof.origin, proof.head, '--').toString('utf8').split('\0').filter(Boolean);
   assert.deepEqual(changed.sort(), ['app.mjs', 'fixture.mjs'], 'independently fetched H contains exactly the authorized feature and additive test changes');
-  assert.ok(Array.isArray(proof.mutations) && proof.mutations.length >= 2);
-  const latest = new Map();
-  for (const [index, mutation] of proof.mutations.entries()) {
-    assert.equal(mutation.order, index + 1);
-    assert.ok(changed.includes(mutation.path), 'every recorded write belongs to this Ticket scope');
-    assert.match(mutation.afterSha256, /^[a-f0-9]{64}$/);
-    if (mutation.beforeSha256 !== null) assert.match(mutation.beforeSha256, /^[a-f0-9]{64}$/);
-    assert.notEqual(mutation.beforeSha256, mutation.afterSha256, 'no-op calls are not completed mutations');
-    const before = latest.has(mutation.path) ? latest.get(mutation.path) : digest(proof.baseline, mutation.path);
-    assert.equal(mutation.beforeSha256, before, `raw baseline or preceding write must anchor ${mutation.path}`);
-    assert.equal(mutation.matchesDeliveredFile, mutation.afterSha256 === digest(report.codeSha, mutation.path));
-    latest.set(mutation.path, mutation.afterSha256);
-  }
-  assert.deepEqual([...latest.keys()].sort(), changed, 'the mutation chain covers every changed Git file');
-  for (const [path, hash] of latest) assert.equal(hash, digest(proof.head, path), `the last completed write equals the raw H blob for ${path}`);
+  assert.ok(proof.segments.every(segment => segment.kind === 'agent-edit'), 'single-ticket normal fixture has no upstream merge preparation');
+  const mutations = proof.segments.flatMap(segment => segment.mutations);
+  assert.ok(mutations.length >= 2);
+  for (const mutation of mutations) assert.ok(changed.includes(mutation.path), 'every observed write belongs to the authorized Ticket scope');
 }
 function verifyApprovedContext(f, report) {
   const start = f.confirmation.indexOf('\n{');

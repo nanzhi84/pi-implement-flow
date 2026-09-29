@@ -19,7 +19,7 @@ export interface ExecutionInput {
 }
 export interface TicketResult {
   number: number; state: 'blocked' | 'paused' | 'delivered' | 'integrated-unaccepted'; pr?: PullRequest;
-  implementationEvidence?: ImplementationEvidence;
+  ownedWorkspace?: { cwd: string; resources: string; branch: string; expectedHead: string }; implementationEvidence?: ImplementationEvidence;
 }
 
 export async function executeFirstTicket(input: ExecutionInput): Promise<TicketResult> {
@@ -78,8 +78,8 @@ export async function executeFirstTicket(input: ExecutionInput): Promise<TicketR
   if (pr.head.sha !== sha) throw new PreflightError('REMOTE_DRIFT', 'PR head differs from the committed implementation');
   signal.throwIfAborted();
   ctx.ui.notify(`TICKET_PR: ${pr.html_url}`, 'info');
-  return { number: ticket.issue.number, state: 'paused', pr,
-    implementationEvidence: { baseline: base, mutations: result.mutations } };
+  return { number: ticket.issue.number, state: 'paused', pr, ownedWorkspace: { cwd: workspace.cwd, resources: workspace.resources, branch: workspace.branch, expectedHead: sha },
+    implementationEvidence: { schema: 2, source: 'controller-code-segments', origin: base, head: sha, segments: [{ kind: 'agent-edit', from: base, head: sha, mutations: result.mutations }] } };
 }
 
 // Called by the integration layer only once the feature has a real difference.

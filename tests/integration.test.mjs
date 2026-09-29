@@ -48,11 +48,11 @@ test('real OpenAI model delivers and independently reviews the actual integrated
   assert.equal(observed.totalBeforeIntegration, 0, 'no empty total PR before actual integration');
   assert.equal(observed.featureAtCandidate, f.baseline);
   const c = readGate(f, candidate(observed));
-  const mutations = c.report.implementationEvidence.mutations;
+  const mutations = c.report.implementationEvidence.segments.flatMap((segment, segmentIndex) => segment.mutations.map(event => ({ ...event, segmentIndex })));
   const finalAcceptanceHash = mutations.filter(mutation => mutation.path === 'fixture.mjs').at(-1).afterSha256;
   const acceptanceWritten = mutations.find(mutation => mutation.path === 'fixture.mjs' && mutation.afterSha256 === finalAcceptanceHash);
   const implementationWritten = mutations.find(mutation => mutation.path === 'app.mjs');
-  assert.ok(acceptanceWritten.order < implementationWritten.order, 'the final delivered acceptance file was written before the first effective implementation change');
+  assert.ok(acceptanceWritten.segmentIndex < implementationWritten.segmentIndex || (acceptanceWritten.segmentIndex === implementationWritten.segmentIndex && acceptanceWritten.order < implementationWritten.order), 'the final delivered acceptance file was written before the first effective implementation change');
   assert.equal(acceptanceWritten.matchesDeliveredFile, true);
   const pr = ticketPull(f);
   assert.equal(pr.merged, true); assert.equal(pr.state, 'closed');
@@ -65,7 +65,7 @@ test('real OpenAI model delivers and independently reviews the actual integrated
     assert.equal(accepted.report.codeSha, versions.M);
     assert.deepEqual(accepted.report.versions, versions);
     assert.notEqual(accepted.sha256, c.sha256);
-    const sourceEvents = report => report.implementationEvidence.mutations.map(({ matchesDeliveredFile, ...event }) => event);
+    const sourceEvents = report => report.implementationEvidence.segments.map(segment => ({ ...segment, mutations: segment.mutations.map(({ matchesDeliveredFile, ...event }) => event) }));
     assert.deepEqual(sourceEvents(accepted.report), sourceEvents(c.report), 'C and M retain the same completed implementation write history');
   }
   assert.deepEqual(accepted.report.approvedContext, c.report.approvedContext, 'C and M retain the same readable controller-approved requirements and instructions');
@@ -84,8 +84,8 @@ test('real OpenAI model delivers and independently reviews the actual integrated
   assert.ok(totalComments.some(comment => [delivery.html_url, pr.html_url, versions.M, c.url, accepted.url].every(value => comment.body.includes(value))),
     'Draft total PR is a review entrypoint linking the Ticket delivery record, Ticket PR, M and C/M evidence');
   f.pass({ versions, ticketPr: pr.html_url, totalPr: total[0].html_url,
-    implementationEvidence: { baseline: c.report.implementationEvidence.baseline, head: versions.H,
-      mutations: mutations.length, finalAcceptanceWrittenAt: acceptanceWritten.order, firstImplementationWrittenAt: implementationWritten.order,
+    implementationEvidence: { baseline: c.report.implementationEvidence.origin, head: versions.H,
+      mutations: mutations.length, finalAcceptanceWrittenAt: [acceptanceWritten.segmentIndex, acceptanceWritten.order], firstImplementationWrittenAt: [implementationWritten.segmentIndex, implementationWritten.order],
       boundary: 'Raw Git bytes independently anchor completed controlled writes; this proves final acceptance content was written first, not that a failing test ran first.' },
     evidence: [c, ...(accepted === c ? [] : [accepted])].map(item => ({ url: item.url, sha256: item.sha256, codeSha: item.report.codeSha })),
     assertions: ['original T2 baseline/PR identity/context/scope/main assertions retained', 'real OpenAI implementation and independent reviewer', 'new CLI assertion plus existing assertions executed', 'raw baseline/H blobs anchor complete mutation chains and changed-file coverage', 'final acceptance bytes written before first effective implementation mutation', 'C/M preserve source events and bind delivered-file matches to actual bytes', 'C/M retain the same readable approved Spec/Ticket/dependencies/instructions/contract snapshot verified against the fixture', 'C parents verified', 'merge constrained to H', 'actual M parents/tree verified', 'actual SHA revalidated when different', 'historic C bytes preserved', 'remote M rejects String.trim spaces/TAB/FF/VT/NBSP/U+2003 and preserves accepted name bytes; missing/CR/LF remain rejected', 'Ticket closes after gate evidence', 'controller attributes command definitions and isolated review source', 'Draft total links full delivery/evidence chain', 'Spec open; total PR Draft; main unchanged'] });
