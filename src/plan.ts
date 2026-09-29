@@ -19,10 +19,10 @@ function section(issue: Issue, names: string[]): string | undefined {
   let fence: string | undefined;
   const body: string[] = [];
   for (const line of lines) {
-    const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-    if (marker) {
-      if (!fence) fence = marker;
-      else if (marker[0] === fence[0] && marker.length >= fence.length) fence = undefined;
+    const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (marker?.[1]) {
+      if (!fence) fence = marker[1];
+      else if (marker[1][0] === fence[0] && marker[1].length >= fence.length && !marker[2]?.trim()) fence = undefined;
       continue;
     }
     if (fence) continue;
@@ -50,22 +50,34 @@ function requireAcceptance(issue: Issue, spec: boolean): void {
 function declaredDependencies(ticket: Issue, repository: string): number[] | undefined {
   const declaration = section(ticket, ['blocked by']);
   if (declaration === undefined) return undefined;
-  let rest = declaration;
+  const fail = (): never => {
+    throw new PreflightError('DEPENDENCY_INVALID', `Ticket #${ticket.number}: Blocked by must contain complete same-repository Issue references or None; no qualified shorthand, invalid numbers or ambiguous prose`);
+  };
+  const lines = declaration.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  if (!lines.length) fail();
   const dependencies = new Set<number>();
-  for (const match of declaration.matchAll(/https?:\/\/[^\s)<>]+/g)) {
-    const url = match[0];
-    const local = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/issues\/([1-9]\d*)$/.exec(url);
-    if (!local || local[1]?.toLowerCase() !== repository.toLowerCase()) {
-      throw new PreflightError('DEPENDENCY_INVALID', `Ticket #${ticket.number}: dependency URL must reference an Issue in this repository`);
+  for (const line of lines) {
+    // Parenthetical display notes support existing tickets such as #2（讨论编号 1）.
+    // Notes may not conceal another Issue reference or URL.
+    let references = line.replace(/^[-*]\s+/, '');
+    const note = /\s*(?:\([^()]*\)|（[^（）]*）)$/.exec(references);
+    if (note) {
+      if (/#|https?:\/\//i.test(note[0])) fail();
+      references = references.slice(0, note.index).trim();
     }
-    dependencies.add(Number(local[2]));
-    rest = rest.replace(url, '');
-  }
-  for (const match of rest.matchAll(/#([1-9]\d*)\b/g)) dependencies.add(Number(match[1]));
-  const none = /^\s*[-*]?\s*(?:none|无)(?:$|\s|[（(])/im.test(declaration);
-  if ((!none && !dependencies.size) || (none && dependencies.size)
-    || [...dependencies].some(number => !Number.isSafeInteger(number))) {
-    throw new PreflightError('DEPENDENCY_INVALID', `Ticket #${ticket.number}: Blocked by must declare Issue references or None, not ambiguous prose`);
+    if (/^(?:none|无)$/i.test(references)) {
+      if (lines.length !== 1) fail();
+      return [];
+    }
+    // Consume every token, not merely valid-looking substrings of invalid input.
+    for (const reference of references.split(/\s*[,，、]\s*|\s+/)) {
+      const local = /^#([1-9]\d*)$/.exec(reference);
+      const url = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/issues\/([1-9]\d*)$/.exec(reference);
+      if (!local && (!url || url[1]?.toLowerCase() !== repository.toLowerCase())) fail();
+      const number = Number(local?.[1] ?? url?.[2]);
+      if (!Number.isSafeInteger(number)) fail();
+      dependencies.add(number);
+    }
   }
   return [...dependencies].sort((a, b) => a - b);
 }

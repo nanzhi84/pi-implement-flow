@@ -46,6 +46,10 @@ const planningScenarios = [
   { name: 'cyclic-dependencies', spec: 4, expected: /DEPENDENCY_CYCLE.*#5 -> #6 -> #5/ },
   { name: 'dependency-outside-spec', spec: 7, expected: /DEPENDENCY_INVALID.*#8.*#2/ },
   { name: 'native-dependency-plan', spec: 9, concurrency: 3, expected: /DEPENDENCIES: #11 <- #10/, plan: /PLAN_READ: Spec #9; Tickets #10, #11; concurrency 3/ },
+  { name: 'qualified-reference-refused', spec: 12, expected: /DEPENDENCY_INVALID.*#14/ },
+  { name: 'invalid-zero-reference-refused', spec: 15, expected: /DEPENDENCY_INVALID.*#17/ },
+  { name: 'ambiguous-none-refused', spec: 18, expected: /DEPENDENCY_INVALID.*#19/ },
+  { name: 'fenced-planning-refused', spec: 20, expected: /PLAN_INCOMPLETE.*#20.*acceptance/ },
 ];
 for (const scenario of planningScenarios) {
  test(`real pi and GitHub: ${scenario.name}`, { skip: process.env.RUN_GITHUB_E2E !== '1' }, async t => {

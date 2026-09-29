@@ -62,6 +62,12 @@ whether natural-language requirements are actually sufficient.
 All Tickets must be native direct children in the same repository. Native GitHub
 blocked-by edges are read with pagination. When absent, an explicit `## Blocked
 by` section must declare `None` or same-repository `#number`/Issue URL references.
+Text declarations are fully consumed, not searched for valid-looking substrings.
+Use one reference per list item or whitespace/comma-separated references. A final
+parenthetical display note (e.g. `#2（讨论编号 1）`) is allowed but cannot contain
+another reference or URL. Qualified shorthand (`owner/repo#2`), invalid numbers,
+unknown prose, mixed `None` and references, and Markdown links are rejected; use
+bare same-repository `#number` or full HTTPS Issue URLs instead.
 When both native and textual dependencies exist they must agree. Dependencies
 outside the selected direct-child set and cycles are rejected with Issue numbers.
 Closed Issues remain graph nodes, not automatically delivered dependencies.

@@ -41,6 +41,10 @@ The remote cases read public repository `nanzhi84/pi-implement-flow-acceptance`:
 | #4 | Native children #5/#6, textual cycle | Cycle diagnostic `#5 -> #6 -> #5` |
 | #7 | Native child #8 depends on outside child #2 | Invalid-dependency diagnostic |
 | #9 | Native children #10/#11, native dependency #11 → #10 | Show native edge and requested concurrency 3 |
+| #12 | Qualified shorthand `other/repo#13` | Reject, never silently map to local #13 |
+| #15 | Mixed valid reference and `#0` | Reject, never drop invalid reference |
+| #18 | `None pending clarification` | Reject ambiguous declaration |
+| #20 | Planning headings inside a fenced example with a false closing marker | Example cannot satisfy real acceptance |
 
 The repository was made public with user approval. Historical evidence release
 `acceptance-32e3acf` describes its former private-plan rejection, **not** the
