@@ -5,8 +5,9 @@ import { access, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } fr
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openPi } from './pi-client.mjs';
+import { repository, assertRepositoryIdentity } from './acceptance-repository.mjs';
+export { repository } from './acceptance-repository.mjs';
 
-export const repository = 'nanzhi84/pi-implement-flow-acceptance';
 export const model = { provider: process.env.PI_PROVIDER ?? 'openai-codex', id: process.env.PI_MODEL ?? 'gpt-6-astra' };
 const evidenceName = process.env.FLOW_EXECUTION_ARTIFACT_PREFIX ?? 'execution';
 if (!/^[a-z-]+$/.test(evidenceName)) throw new Error('Invalid evidence prefix');
@@ -40,6 +41,7 @@ export async function waitFor(predicate, message, timeoutMs = 60_000) {
 }
 
 export async function fixture(t, scenario, options = {}) {
+  assertRepositoryIdentity(api(`repos/${repository}`));
   const root = await realpath(await mkdtemp(join(tmpdir(), 'flow-execution-')));
   const project = join(root, 'project');
   const agent = join(root, 'agent');
