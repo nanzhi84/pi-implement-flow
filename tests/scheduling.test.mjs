@@ -88,7 +88,7 @@ test('B is revalidated on latest accepted A and semantic failure cannot reuse ol
 test('unknown push freezes parallel work while failed cleanup retains its resource and ownership', options('parallel-unknown-retains-cleanup'), async t => {
   const f = await graphFixture(t, 'parallel-unknown-retains-cleanup');
   const running = f.run();
-  await f.waitCleanupHold();
+  await Promise.race([f.waitCleanupHold(), running.then(() => { throw new Error('Flow ended before the intentional parallel cleanup boundary'); })]);
   const held = await f.observe(); verifyActivities(held, 2, true);
   assert.ok(held.resources.unknownPush, 'the remote push really applied before the transport fault');
   const before = held.events.filter(item => item.type === 'notice' && item.message.startsWith('FLOW_RESOURCE: ')).map(item => JSON.parse(item.message.slice('FLOW_RESOURCE: '.length)));
