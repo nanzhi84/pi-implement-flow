@@ -27,13 +27,18 @@ export function expectedPull(pr: PullRequest, input: ExecutionInput, submission:
 }
 async function currentCandidate(input: ExecutionInput, remote: Remote, submission: RepairSubmission, B: string) {
   const deadline = performance.now() + 60_000;
-  while (true) {
+  const assertWindow = () => {
     input.signal.throwIfAborted();
     if (performance.now() >= deadline) throw new PreflightError('CANDIDATE_UNAVAILABLE', 'GitHub candidate computation exceeded the bounded read window; preserve the current PR without replaying writes');
+  };
+  while (true) {
+    assertWindow();
     await input.scope.assert();
+    assertWindow();
     await requireRemoteHead(input.cwd, input.feature, B);
+    assertWindow();
     const pr = await remote.pull(submission.pr.number);
-    input.signal.throwIfAborted();
+    assertWindow();
     expectedPull(pr, input, submission);
     if (pr.merged || pr.state !== 'open' || pr.base.sha !== B) {
       throw new PreflightError('CANDIDATE_UNAVAILABLE', 'Candidate must remain the same open PR at the accepted base');
