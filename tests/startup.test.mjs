@@ -73,9 +73,11 @@ test('real preparation failure cleans up and never claims startup', { skip }, as
   const pi = await f.open();
   const output = await pi.flow('preflight 1', true);
   assert.match(output, /COMMAND_FAILED.*prepare/);
+  const detail = JSON.parse(pi.notices.find(message => message.startsWith('FAILURE_DETAIL: ')).slice('FAILURE_DETAIL: '.length));
+  assert.deepEqual(detail, { operation: 'prepare', kind: 'unknown', reason: 'process-exited', commandStart: 'started', exitCode: 1 });
   assert.doesNotMatch(output, /FLOW_STARTED/);
   assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: f.project, encoding: 'utf8' }), '');
-  results.push({ scenario: 'preparation-failure', result: 'passed', assertions: ['command failure classified', 'no startup', 'Git unchanged'] });
+  results.push({ scenario: 'preparation-failure', result: 'passed', failure: detail, assertions: ['command failure classified with safe prepare detail', 'no startup', 'Git unchanged'] });
 });
 
 test('approval cannot authorize a contract edited while confirmation is open', { skip }, async t => {
@@ -155,13 +157,18 @@ for (const phase of ['cleanup', 'publish']) {
     const output = await pi.flow('preflight 1', true);
     assert.match(output, new RegExp(`FAULT_CHILD_CLOSED: ${phase}`));
     assert.match(output, /PROCESS_UNQUIESCED/);
+    const detail = JSON.parse(pi.notices.find(message => message.startsWith('FAILURE_DETAIL: ')).slice('FAILURE_DETAIL: '.length));
+    assert.equal(detail.operation, phase);
+    assert.equal(detail.kind, 'unquiesced');
+    assert.equal(detail.reason, 'process-unquiesced');
+    assert.equal(detail.commandStart, 'started');
     assert.doesNotMatch(output, /FLOW_STARTED|EVIDENCE_URL/);
     assert.match(await pi.flow('status'), /stopping/);
     const competitor = await other.open();
     assert.match(await competitor.flow('preflight 1', false), /FLOW_OWNED/);
     const worktrees = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: f.project, encoding: 'utf8' });
     assert.equal((worktrees.match(/^worktree /gm) ?? []).length, 2);
-    results.push({ scenario: `unquiesced-${phase}`, result: 'passed', boundary: 'real pi and commands; injected process.kill liveness observation only', assertions: ['unknown quiescence preserved', 'competing clone refused', 'probe workspace retained'] });
+    results.push({ scenario: `unquiesced-${phase}`, result: 'passed', failure: detail, boundary: 'real pi and commands; injected process.kill liveness observation only', assertions: ['unknown quiescence preserved with correct phase diagnostic', 'competing clone refused', 'probe workspace retained'] });
   });
 }
 

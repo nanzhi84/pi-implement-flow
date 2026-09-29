@@ -51,13 +51,13 @@ export class Remote {
       if (method !== 'GET') this.signal?.throwIfAborted();
       // Once sent, do not cancel a remote write and guess its outcome. Read it back.
       sent = true;
-      const output = await run(args, { cwd: this.cwd, timeoutMs: 30_000, label: `GitHub ${method}` });
+      const output = await run(args, { cwd: this.cwd, timeoutMs: 30_000, label: `GitHub ${method}`, operation: method === 'GET' ? 'github-read' : 'github-write' });
       return output.trim() ? JSON.parse(output) as T : undefined as T;
     } catch (error) {
       primary = !sent && this.signal?.aborted ? this.signal.reason
         : error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED' ? error
         : new PreflightError(method === 'GET' ? 'REMOTE_READ_FAILED' : 'REMOTE_RESULT_UNKNOWN',
-        `${method} ${path.split('?')[0]} could not be confirmed; preserve work and reconcile remote facts before continuing`);
+        `${method} ${path.split('?')[0]} could not be confirmed; preserve work and reconcile remote facts before continuing`, error instanceof PreflightError ? error.detail : undefined);
       throw primary;
     } finally {
       if (temporary) {
@@ -73,7 +73,7 @@ export class Remote {
   async list<T>(path: string): Promise<T[]> {
     const output = await run(['gh', 'api', '--hostname', 'github.com', '--method', 'GET', '--paginate', '--slurp',
       `repos/${this.repository}/${path}${path.includes('?') ? '&' : '?'}per_page=100`], {
-      cwd: this.cwd, timeoutMs: 30_000, label: 'GitHub paginated read',
+      cwd: this.cwd, timeoutMs: 30_000, label: 'GitHub paginated read', operation: 'github-read',
     });
     let pages: unknown;
     try { pages = JSON.parse(output); } catch { /* Shape validation below. */ }
@@ -120,7 +120,7 @@ export class Remote {
     } catch (error) {
       if ((this.signal?.aborted && error === this.signal.reason)
         || (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED')) throw error;
-      throw new PreflightError('REMOTE_RESULT_UNKNOWN', 'PR write or its readback was not confirmed; preserve work and reconcile the exact head/base PR');
+      throw new PreflightError('REMOTE_RESULT_UNKNOWN', 'PR write or its readback was not confirmed; preserve work and reconcile the exact head/base PR', error instanceof PreflightError ? error.detail : undefined);
     }
   }
 
@@ -133,14 +133,14 @@ export class Remote {
     this.signal?.throwIfAborted();
     try {
       await run(['gh', 'pr', 'ready', String(number), '--repo', this.repository], {
-        cwd: this.cwd, timeoutMs: 30_000, label: 'Ticket PR ready',
+        cwd: this.cwd, timeoutMs: 30_000, label: 'Ticket PR ready', operation: 'github-write',
       });
       const actual = await this.pull(number);
       if (actual.draft || actual.state !== 'open') throw new Error('Ready readback differs');
       return actual;
     } catch (error) {
       if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
-      throw new PreflightError('REMOTE_RESULT_UNKNOWN', 'Ticket PR ready outcome unconfirmed; reconcile the exact PR before further writes');
+      throw new PreflightError('REMOTE_RESULT_UNKNOWN', 'Ticket PR ready outcome unconfirmed; reconcile the exact PR before further writes', error instanceof PreflightError ? error.detail : undefined);
     }
   }
 
@@ -166,7 +166,7 @@ export class Remote {
       if (actual?.number !== number || actual.state !== 'closed' || actual.state_reason !== 'completed' || actual.pull_request) throw new Error('Closure readback differs');
     } catch (error) {
       if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
-      throw new PreflightError('REMOTE_RESULT_UNKNOWN', 'Issue closure readback unavailable; distinguish applied integration from pending closure');
+      throw new PreflightError('REMOTE_RESULT_UNKNOWN', 'Issue closure readback unavailable; distinguish applied integration from pending closure', error instanceof PreflightError ? error.detail : undefined);
     }
   }
 }

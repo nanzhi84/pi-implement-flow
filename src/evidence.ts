@@ -20,7 +20,7 @@ export async function publishEvidence(input: {
   try { publication = JSON.parse(await input.publish()); }
   catch (error) {
     if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
-    throw new PreflightError('PUBLISH_UNRESOLVED', 'Publisher outcome is unknown; retain the report and reconcile the exact remote evidence before continuing');
+    throw new PreflightError('PUBLISH_UNRESOLVED', 'Publisher outcome is unknown; retain the report and reconcile the exact remote evidence before continuing', error instanceof PreflightError ? error.detail : undefined);
   }
   const pattern = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/releases\/download\/([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)$/;
   const link = publication && typeof publication.url === 'string' ? pattern.exec(publication.url) : null;
@@ -29,7 +29,7 @@ export async function publishEvidence(input: {
     throw new PreflightError('EVIDENCE_INVALID', 'Evidence must be a same-repository release asset with matching SHA256 and sufficient retention');
   }
   const bytes = await runBytes(['gh', 'release', 'download', link[2]!, '--repo', input.repository, '--pattern', link[3]!, '--output', '-'], {
-    cwd: input.cwd, signal: input.signal, timeoutMs: input.contract.commandTimeoutMs, label: 'evidence download',
+    cwd: input.cwd, signal: input.signal, timeoutMs: input.contract.commandTimeoutMs, label: 'evidence download', operation: 'github-read',
   });
   if (createHash('sha256').update(bytes).digest('hex') !== hash) throw new PreflightError('EVIDENCE_INVALID', 'Downloaded evidence bytes do not match the executed report');
   return { url: publication.url as string, sha256: hash, codeSha: input.codeSha };

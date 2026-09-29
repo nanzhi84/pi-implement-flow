@@ -183,6 +183,27 @@ race may already have merged before detection. Such a result is reported as
 `integrated-unaccepted`; its actual commits and pending or applied Issue closure
 are preserved, ownership is retained, and no downstream work is released.
 
+## Infrastructure failure acceptance
+
+```sh
+PI_BIN=/path/to/approved/pi NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
+FLOW_ACCEPTANCE_REPOSITORY=nanzhi84/pi-implement-flow-acceptance \
+RUN_GITHUB_E2E=1 npm run test:infrastructure
+```
+
+Fifteen cases use real pi, the installed SDK, GitHub and project commands with
+explicit loopback HTTP or CLI fault injection. They check SDK-only bounded
+recovery, exhausted/permanent failures, cancellation during retry, safe remote
+diagnostics and strict check/accept failure classification. Select one fresh
+case with `FLOW_INFRASTRUCTURE_SCENARIO`; the runner records skips and never
+retries an individual failed operation. `artifacts/infrastructure.json` and
+timestamped copies bind final test exit, source SHA/content, host versions and
+sanitized assertions. Private `*.local.json` fixture locators must not be published.
+This fixed-model suite needs authenticated `gh` and sole ownership of the selected
+synthetic repository; real OpenAI integration is verified separately on the same
+frozen source. See [failure scenarios](docs/testing/t9a-scenarios.md) and
+[failure-report protocol](docs/adr/0004-infrastructure-failure-boundaries.md).
+
 ## Development delivery
 
 The user authorized this repository's Ticket PRs to merge directly to main only
