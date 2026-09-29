@@ -27,7 +27,7 @@ export async function probeProject(
   const execute = async (phase: keyof Contract['commands'], cancellable = true) => {
     const output = await run(contract.commands[phase], {
       cwd: workspace.cwd, env, timeoutMs: contract.commandTimeoutMs,
-      signal: cancellable ? signal : undefined, label: phase,
+      signal: cancellable ? signal : undefined, label: phase, operation: phase,
     });
     await workspace.check();
     return output;
@@ -44,7 +44,7 @@ export async function probeProject(
   try { await execute('cleanup', false); }
   catch (error) {
     if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
-    throw new PreflightError('CLEANUP_FAILED', 'Project cleanup failed; preserve probe workspace and stop; no publication or startup');
+    throw new PreflightError('CLEANUP_FAILED', 'Project cleanup failed; preserve probe workspace and stop; no publication or startup', error instanceof PreflightError ? error.detail : undefined);
   }
   if (failure) {
     await workspace.remove();
