@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 const [mode, command, ...args] = process.argv.slice(2);
-const modes = ['github-eof', 'github-permanent', 'gate-behavior', 'gate-infrastructure', 'gate-configuration',
+const modes = ['github-eof', 'github-permanent', 'github-certificate-expired', 'github-certificate-untrusted', 'github-tls-unknown',
+  'gate-behavior', 'gate-infrastructure', 'gate-configuration',
   'gate-unclassified', 'gate-invalid-report', 'gate-success-contradiction', 'gate-timeout-report'];
 if (!modes.includes(mode) || !command) process.exit(97);
 const actual = spawnSync(command, args, { env: process.env, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 4 * 1024 * 1024 });
@@ -10,7 +11,11 @@ if (actual.error || actual.signal || actual.status !== 0) {
   process.exit(actual.status || 98);
 }
 if (mode.startsWith('github-')) {
-  process.stderr.write(mode === 'github-eof' ? 'unexpected EOF\n' : 'HTTP 403: resource not accessible; permission denied\n');
+  const diagnostics = { 'github-eof': 'unexpected EOF', 'github-permanent': 'HTTP 403: resource not accessible; permission denied',
+    'github-certificate-expired': 'CERT_HAS_EXPIRED: certificate has expired',
+    'github-certificate-untrusted': 'SSL certificate problem: unable to get local issuer certificate',
+    'github-tls-unknown': 'LibreSSL SSL_connect: SSL_ERROR_SYSCALL in connection' };
+  process.stderr.write(diagnostics[mode] + '\n');
   process.stderr.write('FLOW_SYNTHETIC_SECRET_DO_NOT_PUBLISH\nINFRASTRUCTURE_FAULT_APPLIED\n');
   process.exitCode = 1;
 } else {

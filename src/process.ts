@@ -83,7 +83,7 @@ export async function captureCommand(argv: string[], options: CommandOptions): P
         reject(new PreflightError(failure ?? 'COMMAND_FAILED', `${options.label} did not complete safely; inspect the command privately`, { ...detail, ...metadata }));
       } else {
         let detail = classifyFailure(operation, diagnostic.toString('utf8'));
-        if (detail.kind === 'unknown') detail = { ...detail, reason: 'process-exited' };
+        if (detail.reason === 'unclassified') detail = { ...detail, reason: 'process-exited' };
         resolve({ exitCode: code!, stdout: Buffer.concat(output), ...(code !== 0 ? { failure: { ...detail, ...metadata } } : {}) });
       }
     });

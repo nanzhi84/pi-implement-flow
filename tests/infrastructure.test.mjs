@@ -8,7 +8,8 @@ import { infrastructureProvider } from './infrastructure-provider.mjs';
 import { implementationFiles, integrationProvider } from './integration-provider.mjs';
 
 export const names = ['model-transient', 'model-exhausted', 'model-permanent', 'model-quota', 'model-invalid', 'model-cancel-retry',
-  'github-eof', 'github-permanent', 'gate-behavior', 'gate-infrastructure', 'gate-configuration', 'gate-unclassified',
+  'github-eof', 'github-permanent', 'github-certificate-expired', 'github-certificate-untrusted', 'github-tls-unknown',
+  'gate-behavior', 'gate-infrastructure', 'gate-configuration', 'gate-unclassified',
   'gate-invalid-report', 'gate-success-contradiction', 'gate-timeout-report'];
 const selected = process.env.FLOW_INFRASTRUCTURE_SCENARIO;
 const options = name => ({ skip: process.env.RUN_GITHUB_E2E !== '1' || (selected && selected !== name), timeout: 1_200_000 });
@@ -59,6 +60,9 @@ for (const [scenario, expected] of Object.entries(modelExpected)) {
 const commands = {
   'github-eof': ['REMOTE_READ_FAILED', 'infrastructure', 'eof', 'github-read'],
   'github-permanent': ['REMOTE_READ_FAILED', 'configuration', 'permission', 'github-read'],
+  'github-certificate-expired': ['REMOTE_READ_FAILED', 'configuration', 'tls', 'github-read'],
+  'github-certificate-untrusted': ['REMOTE_READ_FAILED', 'configuration', 'tls', 'github-read'],
+  'github-tls-unknown': ['REMOTE_READ_FAILED', 'unknown', 'tls', 'github-read'],
   'gate-behavior': ['BEHAVIOR_FAILED'],
   'gate-infrastructure': ['COMMAND_FAILED', 'infrastructure', 'connection-refused', 'accept'],
   'gate-configuration': ['COMMAND_FAILED', 'configuration', 'missing-dependency', 'accept'],
@@ -84,6 +88,8 @@ for (const [scenario, expected] of Object.entries(commands)) {
     assert.equal(observer.attempts, 1); assert.equal(observer.applied, 1, 'actual command/read completed before the explicit boundary fault');
     if (expected[1]) assert.deepEqual({ kind: detail(pi)?.kind, reason: detail(pi)?.reason, operation: detail(pi)?.operation },
       { kind: expected[1], reason: expected[2], operation: expected[3] });
+    if (scenario.startsWith('github-certificate-')) assert.equal(detail(pi)?.transient, false);
+    if (scenario === 'github-tls-unknown') assert.equal(Object.hasOwn(detail(pi), 'transient'), false, 'ambiguous TLS failure cannot imply safe retry');
     if (!gate) assert.equal(fixed.requests.length, 0);
     else {
       assert.equal(fixed.requests.filter(request => request.role === 'review').length, 0, 'failed gate cannot be approved by a reviewer');
