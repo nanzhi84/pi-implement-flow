@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { PreflightError, type Contract } from './contract.ts';
-import { run } from './process.ts';
+import { runBytes } from './process.ts';
 
 export interface Evidence { url: string; sha256: string; codeSha: string; }
 
@@ -28,7 +28,7 @@ export async function publishEvidence(input: {
     || typeof publication.retentionDays !== 'number' || publication.retentionDays < input.contract.artifacts.retentionDays) {
     throw new PreflightError('EVIDENCE_INVALID', 'Evidence must be a same-repository release asset with matching SHA256 and sufficient retention');
   }
-  const bytes = await run(['gh', 'release', 'download', link[2]!, '--repo', input.repository, '--pattern', link[3]!, '--output', '-'], {
+  const bytes = await runBytes(['gh', 'release', 'download', link[2]!, '--repo', input.repository, '--pattern', link[3]!, '--output', '-'], {
     cwd: input.cwd, signal: input.signal, timeoutMs: input.contract.commandTimeoutMs, label: 'evidence download',
   });
   if (createHash('sha256').update(bytes).digest('hex') !== hash) throw new PreflightError('EVIDENCE_INVALID', 'Downloaded evidence bytes do not match the executed report');
