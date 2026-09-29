@@ -3,6 +3,7 @@ import { instructionSnapshot } from './agents.ts';
 import { PreflightError, readContract } from './contract.ts';
 import { publishEvidence, type Evidence } from './evidence.ts';
 import { evidenceContext } from './evidence-context.ts';
+import { runReportedCommand } from './command-outcome.ts';
 import type { ExecutionInput } from './execution.ts';
 import type { TicketPlan } from './plan.ts';
 import { verifyMutationEvidence, type ImplementationEvidence } from './mutation-evidence.ts';
@@ -34,10 +35,19 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
     throw new PreflightError('SCOPE_CHANGED', 'Candidate changed approved commands or role instructions; preserve work and request a scope decision');
   }
   const execute = async (name: keyof typeof contract.commands, cancellable = true) => {
-    const output = await run(contract.commands[name], { cwd: workspace.cwd, env,
-      signal: cancellable ? signal : undefined, timeoutMs: contract.commandTimeoutMs, label: `${phase} ${name}` });
-    await workspace.check();
-    return output;
+    const options = { cwd: workspace.cwd, env, operation: name, signal: cancellable ? signal : undefined,
+      timeoutMs: contract.commandTimeoutMs, label: `${phase} ${name}` };
+    try {
+      const output = name === 'check' || name === 'accept'
+        ? await runReportedCommand(name, codeSha, contract.commands[name], options)
+        : await run(contract.commands[name], options);
+      await workspace.check();
+      return output;
+    } catch (error) {
+      if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
+      await workspace.check();
+      throw error;
+    }
   };
   let acceptance: ReturnType<typeof acceptanceResult> | undefined;
   let review: ReviewResult | undefined;
@@ -64,7 +74,7 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
   try { await execute('cleanup', false); }
   catch (error) {
     if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
-    throw new PreflightError('CLEANUP_FAILED', 'Gate cleanup failed; preserve candidate and resources; no integration authority');
+    throw new PreflightError('CLEANUP_FAILED', 'Gate cleanup failed; preserve candidate and resources; no integration authority', error instanceof PreflightError ? error.detail : undefined);
   }
   if (failure) throw failure;
   signal.throwIfAborted();

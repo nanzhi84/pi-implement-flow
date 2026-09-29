@@ -8,7 +8,7 @@
 - 持续 503：项目约定 maxRetries=2 时最多 3 次传输请求；耗尽后一次明确停止，不重开 session。
 - 401 权限/认证、429 insufficient_quota：永久原因不得伪装为暂时限流继续调用。
 - HTTP 200 但模型 JSON 不合法：不是网络错误，不触发外层恢复。
-- SDK 退避期间 `/flow pause`：等待实际取消与工具收敛，无后续模型调用或 Git/GitHub 新写入。
+- SDK 退避期间真实 `new_session` RPC 引发暂停：等待实际取消与工具收敛，无后续模型调用或 Git/GitHub 新写入。
 - GitHub 读取返回 EOF 或明确权限错误：保留安全 operation/kind/reason；只调用一次。诊断不含 stderr、鉴权头、响应正文或本机路径。
 - check/accept 的普通 exit 1：无法证明是代码缺陷，停止而不生成行为失败或修复 Ticket。
 - check/accept 显式行为失败：仅接受退出码 1、完整严格 UTF-8 JSON、正确 SHA、唯一且完整的有界断言集合；至少一项 false。报告摘要绑定原始字节，不充当修复进展或执行账本。

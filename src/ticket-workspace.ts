@@ -19,7 +19,7 @@ export async function pushNew(cwd: string, sha: string, branch: string, signal: 
   try { await git(cwd, ['push', '--porcelain', `--force-with-lease=refs/heads/${branch}:`, 'origin', `${sha}:refs/heads/${branch}`]); }
   catch (error) {
     if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
-    throw new PreflightError('REMOTE_RESULT_UNKNOWN', `Push to ${branch} has unknown outcome; preserve local commit and inspect remote before retrying`);
+    throw new PreflightError('REMOTE_RESULT_UNKNOWN', `Push to ${branch} has unknown outcome; preserve local commit and inspect remote before retrying`, error instanceof PreflightError ? error.detail : undefined);
   }
   await requireRemoteHead(cwd, branch, sha);
   signal.throwIfAborted();
