@@ -30,6 +30,8 @@
 
 固定 HTTP 响应仅控制缺陷/每次写入，真实 SDK 工具、项目命令、GitHub PR/merge/评论/Issues 与证据下载均真实执行。测试不得根据“第 N 轮”伪造 passed；断言结果必须来自实际 CLI。失败未到目标边界不能计通过。各场景最终 Node exit/信号、源码初末 SHA/dirty/fingerprint、host/local SDK、实际模型、仓库基线、外部断言与工件链接均写脱敏报告。
 
+真实场景替换初始 provider 时，原 provider 的 apiKey、headers、env 不得传给本地替身；本地 HTTP 边界只接受固定合成凭据，且不记录或公开请求认证。OpenAI 修复与独立审查不改变其认证配置。
+
 共享执行 helper 对唯一仓库的 allowlist 扩展来自 #10，不复制进程/parser。没有单元测试、凭据复制、原始会话公开或源码边改边验。最终冻结提交后运行；保留失败现场及原始报告。
 
 7. `review-progress`：先由确定性独立审查指出两个真实可见 stderr 契约缺陷；两次真实代码修复分别补齐诊断和调用提示。每次 review 逐项绑定旧引用与当前原始 blob。外部验收从最终 M 再执行 CLI，检查完整诊断输出、历史 failure 报告和同一 PR；改措辞或遗漏旧阻断不能算解决。

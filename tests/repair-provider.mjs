@@ -83,6 +83,7 @@ export async function repairProvider(t, scenario) {
         assert.equal(barrier.upstreamPr, undefined); barrier.upstreamPr = fact;
         releaseUpstream(); res.writeHead(204); res.end(); return;
       }
+      assert.equal(req.headers.authorization === 'Bearer synthetic-local-only', true, 'model fixture must receive only its synthetic credential');
       const input = JSON.parse(body); const context = contextOf(input);
       const role = (input.tools ?? []).some(item => item.function?.name === 'write') ? 'implementation' : 'review';
       const prior = input.messages.filter(item => item.role === 'tool');

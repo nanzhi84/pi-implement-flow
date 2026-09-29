@@ -23,7 +23,10 @@ export default function repairModelBridge(pi) {
       calls.push({ role: implementation ? 'implementation' : 'review', repair, provider: fixed ? 'flow-repair-fixture' : model.provider, id: fixed ? 'fixed' : model.id });
       if (fixed) {
         if (!this.getModel('flow-repair-fixture', 'fixed')) this.registerProvider('flow-repair-fixture', configuration.provider);
-        return original.call(this, this.getModel('flow-repair-fixture', 'fixed'), context, options);
+        // A provider switch must not forward the selected provider's request
+        // credentials. This mirrors the SDK's own cross-provider routing rule.
+        const { apiKey, headers, env, ...rest } = options ?? {};
+        return original.call(this, this.getModel('flow-repair-fixture', 'fixed'), context, { ...rest, apiKey: 'synthetic-local-only' });
       }
       return original.call(this, model, context, options);
     };
