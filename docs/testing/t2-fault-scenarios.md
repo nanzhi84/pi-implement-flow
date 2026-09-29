@@ -35,6 +35,13 @@ confined to that scenario's worktree. Dirty workspaces and local facts remain
 after a passing fault test for manual inspection; the public report excludes
 their private filesystem paths.
 
+The test observer uses a process-local `globalThis` symbol because pi can rebuild
+extension factories during `new_session`. The phase and counters survive only
+within that same process. Each rebuilt factory reinstalls the same wrapper and
+binds a fresh UI context; the underlying native spawn is captured once to avoid
+recursive wrapping. This keeps any later push observable without a file ledger
+or assumptions about production controller state surviving a process restart.
+
 ## Repeatability and evidence
 
 Run only when no other acceptance flow owns this repository:
