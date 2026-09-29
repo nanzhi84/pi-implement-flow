@@ -104,7 +104,7 @@ export async function repairFixture(t, scenario) {
   const contract = JSON.parse(await readFile(join(f.project, '.pi/flow.json'), 'utf8'));
   let approved;
   const extensions = [fileURLToPath(new URL('./fixtures/repair-observer.mjs', import.meta.url)),
-    ...(real ? [fileURLToPath(new URL('./fixtures/repair-model-bridge.mjs', import.meta.url))] : [])];
+    ...(real ? [fileURLToPath(new URL('./fixtures/repair-model-bridge.ts', import.meta.url))] : [])];
   const pi = await f.open({ timeoutMs: 2_400_000, extensions, onConfirm: event => {
     const start = event.message.indexOf('\n{'); assert.ok(start >= 0); approved = JSON.parse(event.message.slice(start + 1)); return true;
   } });
@@ -140,6 +140,8 @@ export async function repairFixture(t, scenario) {
       const status = delivered ? 'delivered' : output.includes(`TICKET_NO_PROGRESS: #${target.number} `) ? 'no-progress' : blocked ? 'blocked' : 'failed';
       let repairModel;
       if (real) {
+        assert.ok(fixed.requests.some(item => item.role === 'implementation' && !item.repair), 'initial defect must actually pass through the fixed HTTP transport');
+        assert.ok(failures.length > 0, 'real repair acceptance requires an actual published candidate defect');
         await pi.request('prompt', { message: '/fixture-repair-model-status' });
         const models = JSON.parse(pi.notices.findLast(item => item.startsWith('REPAIR_MODEL_OBSERVER: ')).slice('REPAIR_MODEL_OBSERVER: '.length));
         const repairs = models.filter(item => item.role === 'implementation' && item.repair);
