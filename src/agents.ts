@@ -53,7 +53,10 @@ export async function createRole(
     created.session.dispose();
     throw new PreflightError('AGENT_UNAVAILABLE', 'Configured role tools were not installed exactly');
   }
-  return { ...created, settleTools: boundary.settle };
+  return { ...created, settleTools: boundary.settle, snapshotMutations() {
+    if (!created.session.isIdle) throw new PreflightError('PROCESS_UNQUIESCED', 'Cannot snapshot supported writes before the role is idle');
+    return boundary.snapshotMutations();
+  } };
 }
 
 export async function checkAgentReadiness(cwd: string, contract: Contract, ctx: ExtensionContext, signal: AbortSignal) {

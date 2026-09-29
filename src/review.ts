@@ -83,5 +83,5 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
     + 'Choose one listed category for each blocker. Use empty arrays when there are no findings of that kind. '
     + 'Return at most 100 items per array, at most 20000 characters per text, and at most 512000 characters in total. '
     + 'Copy the exact controller bindings above. Your result does not itself perform delivery or replace native GitHub required review.';
-  return result(await runRoleSession({ ...input, prompt }, 'review'), expected);
+  return result((await runRoleSession({ ...input, prompt }, 'review')).text, expected);
 }

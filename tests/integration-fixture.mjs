@@ -77,6 +77,43 @@ export function assertNoDelivery(f, output, expectedFeature = f.baseline) {
   f.verifyInvariants();
   return pr;
 }
+function verifyImplementationEvidence(f, report) {
+  const proof = report.implementationEvidence;
+  assert.equal(proof.source, 'controller-worktree-writes');
+  assert.equal(proof.baseline, f.baseline);
+  assert.equal(proof.head, report.versions.H);
+  assert.equal(proof.scopeDigest, report.scopeDigest);
+  for (const sha of [proof.baseline, proof.head, report.codeSha]) assert.match(sha, /^[a-f0-9]{40}$/);
+  // The shared git() helper trims text; raw bytes are required to retain final newlines.
+  const raw = (...args) => execFileSync('git', args, { cwd: f.project,
+    stdio: ['ignore', 'pipe', 'pipe'], timeout: 120_000, maxBuffer: 8 * 1024 * 1024 });
+  raw('fetch', '--quiet', 'origin', ...new Set([proof.baseline, proof.head, report.codeSha]));
+  const trees = new Map(); const digests = new Map();
+  const digest = (sha, path) => {
+    if (!trees.has(sha)) trees.set(sha, new Set(raw('ls-tree', '-r', '--name-only', '-z', sha).toString('utf8').split('\0').filter(Boolean)));
+    if (!trees.get(sha).has(path)) return null;
+    const key = `${sha}:${path}`;
+    if (!digests.has(key)) digests.set(key, createHash('sha256').update(raw('show', key)).digest('hex'));
+    return digests.get(key);
+  };
+  const changed = raw('diff', '--name-only', '-z', '--no-renames', proof.baseline, proof.head, '--').toString('utf8').split('\0').filter(Boolean);
+  assert.deepEqual(changed.sort(), ['app.mjs', 'fixture.mjs'], 'independently fetched H contains exactly the authorized feature and additive test changes');
+  assert.ok(Array.isArray(proof.mutations) && proof.mutations.length >= 2);
+  const latest = new Map();
+  for (const [index, mutation] of proof.mutations.entries()) {
+    assert.equal(mutation.order, index + 1);
+    assert.ok(changed.includes(mutation.path), 'every recorded write belongs to this Ticket scope');
+    assert.match(mutation.afterSha256, /^[a-f0-9]{64}$/);
+    if (mutation.beforeSha256 !== null) assert.match(mutation.beforeSha256, /^[a-f0-9]{64}$/);
+    assert.notEqual(mutation.beforeSha256, mutation.afterSha256, 'no-op calls are not completed mutations');
+    const before = latest.has(mutation.path) ? latest.get(mutation.path) : digest(proof.baseline, mutation.path);
+    assert.equal(mutation.beforeSha256, before, `raw baseline or preceding write must anchor ${mutation.path}`);
+    assert.equal(mutation.matchesDeliveredFile, mutation.afterSha256 === digest(report.codeSha, mutation.path));
+    latest.set(mutation.path, mutation.afterSha256);
+  }
+  assert.deepEqual([...latest.keys()].sort(), changed, 'the mutation chain covers every changed Git file');
+  for (const [path, hash] of latest) assert.equal(hash, digest(proof.head, path), `the last completed write equals the raw H blob for ${path}`);
+}
 export function readGate(f, observation) {
   const match = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/releases\/download\/([^/]+)\/([^/]+)$/.exec(observation.url);
   assert.ok(match); assert.equal(match[1], repository);
@@ -112,6 +149,7 @@ export function readGate(f, observation) {
   assert.equal(report.review.scopeDigest, report.scopeDigest);
   assert.deepEqual(report.review.blockers, []);
   assert.ok(Array.isArray(report.review.suggestions));
+  verifyImplementationEvidence(f, report);
   return { report, url: observation.url, sha256: createHash('sha256').update(bytes).digest('hex') };
 }
 export function verifyVersionChain(f, pr, gate) {

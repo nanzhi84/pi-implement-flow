@@ -1,6 +1,7 @@
 import { ModelRuntime, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { createRole } from './agents.ts';
 import { PreflightError, type Contract } from './contract.ts';
+import type { MutationEvidence } from './mutation-evidence.ts';
 
 export interface RoleSessionInput {
   cwd: string;
@@ -11,10 +12,11 @@ export interface RoleSessionInput {
   resources: string;
   environment?: NodeJS.ProcessEnv;
 }
+export interface RoleSessionResult { text: string; mutations: MutationEvidence[]; }
 
 // Each call owns a new in-memory conversation. Neither role can supply or inherit
 // the other role's session, messages, tools, or model-reported approval identity.
-export async function runRoleSession(input: RoleSessionInput, roleName: 'implementation' | 'review'): Promise<string> {
+export async function runRoleSession(input: RoleSessionInput, roleName: 'implementation' | 'review'): Promise<RoleSessionResult> {
   const { cwd, contract, ctx, signal, prompt, resources } = input;
   const label = roleName === 'implementation' ? 'Implementation' : 'Review';
   signal.throwIfAborted();
@@ -45,6 +47,7 @@ export async function runRoleSession(input: RoleSessionInput, roleName: 'impleme
     if (signal.aborted && event.type === 'agent_start') abort();
   });
   signal.addEventListener('abort', abort, { once: true });
+  let text: string;
   try {
     signal.throwIfAborted();
     await session.prompt(prompt, { expandPromptTemplates: false });
@@ -54,7 +57,7 @@ export async function runRoleSession(input: RoleSessionInput, roleName: 'impleme
     if (!final || final.role !== 'assistant' || final.stopReason !== 'stop' || final.errorMessage) {
       throw new PreflightError('AGENT_FAILED', `${label} model did not finish successfully; preserve the worktree and inspect the provider privately`);
     }
-    return final.content.filter(block => block.type === 'text').map(block => block.text).join('');
+    text = final.content.filter(block => block.type === 'text').map(block => block.text).join('');
   } catch (error) {
     if (error instanceof PreflightError) throw error;
     signal.throwIfAborted();
@@ -74,4 +77,6 @@ export async function runRoleSession(input: RoleSessionInput, roleName: 'impleme
       session.dispose();
     }
   }
+  // Evidence is exposed only after cancellation, tool settlement and idle checks.
+  return { text, mutations: role.snapshotMutations() };
 }

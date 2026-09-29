@@ -1,10 +1,12 @@
 import { runRoleSession, type RoleSessionInput } from './agent-session.ts';
 import { PreflightError } from './contract.ts';
+import type { MutationEvidence } from './mutation-evidence.ts';
 
-export type ImplementationResult = { kind: 'implemented'; summary: string } | { kind: 'blocked'; question: string };
+type ImplementationResponse = { kind: 'implemented'; summary: string } | { kind: 'blocked'; question: string };
+export type ImplementationResult = ImplementationResponse & { mutations: MutationEvidence[] };
 export type ImplementationInput = RoleSessionInput;
 
-function result(text: string): ImplementationResult {
+function result(text: string): ImplementationResponse {
   let value: unknown;
   try { value = JSON.parse(text); } catch { throw new PreflightError('AGENT_RESULT_INVALID', 'Implementation Agent must return one JSON result, without Markdown or extra text'); }
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new PreflightError('AGENT_RESULT_INVALID', 'Implementation Agent returned an invalid result');
@@ -24,9 +26,13 @@ export async function runImplementation(input: ImplementationInput): Promise<Imp
     + 'Before the first file modification, check whether the supplied requirements are unambiguous. '
     + 'If requirements need a human decision, do not edit and return exactly {"kind":"blocked","question":"the decision needed"}. '
     + 'Otherwise implement only this Ticket. Do not change its acceptance criteria or remove/weaken existing acceptance. '
+    + 'If explicit project instructions or this Ticket require tests before implementation, finish the executable behavior assertions before editing the behavior implementation. '
+    + 'The controller observes content-changing supported write/edit operations and supplies version-matched hashes to the independent reviewer. '
+    + 'These observations do not prove that a test ran or failed; do not claim a red test from write order alone. '
     + 'Do not commit, push or create/merge a PR; the controller owns delivery. '
     + 'The bash tool accepts only command names prepare, check, accept, without timeout or extra arguments. '
     + 'When implementation is ready, return exactly {"kind":"implemented","summary":"a concise non-sensitive change summary"}. '
     + 'Return JSON only, without Markdown. Neither your summary nor a command success constitutes delivery acceptance.';
-  return result(await runRoleSession({ ...input, prompt }, 'implementation'));
+  const observed = await runRoleSession({ ...input, prompt }, 'implementation');
+  return { ...result(observed.text), mutations: observed.mutations };
 }

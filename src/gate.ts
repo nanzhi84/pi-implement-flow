@@ -4,6 +4,7 @@ import { PreflightError, readContract } from './contract.ts';
 import { publishEvidence, type Evidence } from './evidence.ts';
 import type { ExecutionInput } from './execution.ts';
 import type { TicketPlan } from './plan.ts';
+import { verifyMutationEvidence, type ImplementationEvidence } from './mutation-evidence.ts';
 import { acceptanceResult, digest } from './probe.ts';
 import { git, run } from './process.ts';
 import { runReview, type ReviewResult } from './review.ts';
@@ -15,7 +16,7 @@ export class ReviewBlocked extends PreflightError {
   constructor(readonly review: ReviewResult) { super('REVIEW_BLOCKED', 'Independent review found blocking defects; implementation statements cannot authorize integration'); }
 }
 
-export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, versions: Versions, phase: 'candidate' | 'actual'): Promise<GateEvidence> {
+export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, versions: Versions, phase: 'candidate' | 'actual', proof?: ImplementationEvidence): Promise<GateEvidence> {
   const { cwd, contract, signal, ctx } = input;
   const codeSha = phase === 'candidate' ? versions.C : versions.M;
   if (!codeSha) throw new PreflightError('VERSION_INVALID', 'Actual integration SHA is required');
@@ -40,6 +41,7 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
   let review: ReviewResult | undefined;
   let failure: unknown;
   const diff = await git(cwd, ['diff', '--no-ext-diff', '--no-textconv', versions.B, codeSha, '--'], signal);
+  const implementationEvidence = await verifyMutationEvidence(cwd, proof, versions.H, codeSha, input.scopeDigest);
   try {
     await execute('prepare');
     await execute('check');
@@ -49,7 +51,7 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
       prompt: JSON.stringify({ task: 'Independently review the exact integration result against its approved scope. Inspect actual code and the supplied diff. Explicitly inspect changed commands, removed assertions and reduced coverage. Never accept an implementation summary as approval. A new behavior test may extend coverage; weakened existing acceptance requires an approved scope change. Report correctness, security, explicit-spec or mandatory-standard defects with basis, impact and a verifiable resolution. Style preferences are suggestions only.',
         spec: input.plan.spec, ticket, approvedChanges: [], versions, phase, codeSha, scopeDigest: input.scopeDigest,
         commandSource: '.pi/flow.json', commands: contract.commands, acceptance,
-        instructions: approvedInstructions, sourceDiff: diff,
+        instructions: approvedInstructions, sourceDiff: diff, implementationEvidence,
       }, null, 2),
     });
     await workspace.check();
@@ -73,7 +75,7 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
     reviewSource: { isolation: 'independent-context', tools: contract.agents.review.tools,
       model: ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : null },
     prerequisites: { resourcesMode: contract.resources.mode, resourcesDescription: contract.resources.description, node: process.version },
-    acceptance, review, cleanup: 'passed', retentionDays: contract.artifacts.retentionDays, sourceDiffDigest: digest(diff) };
+    implementationEvidence, acceptance, review, cleanup: 'passed', retentionDays: contract.artifacts.retentionDays, sourceDiffDigest: digest(diff) };
   // Once publication begins, let it finish and verify bytes even if a pause arrives.
   // It is one trusted project operation, not permission to start the next operation.
   const evidence = await publishEvidence({ cwd, repository: input.repository, codeSha, contract, path: reportPath, report,

@@ -1,4 +1,5 @@
 import { constants } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { lstat, mkdir, open, readdir, realpath } from 'node:fs/promises';
 import { basename, isAbsolute, join, matchesGlob, relative, resolve, sep } from 'node:path';
 import {
@@ -7,7 +8,9 @@ import {
   createWriteToolDefinition, type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
 import { PreflightError, type Contract } from './contract.ts';
+import type { MutationEvidence } from './mutation-evidence.ts';
 import { run } from './process.ts';
+import { workingTreeDigest } from './ticket-workspace.ts';
 
 const excluded = new Set(['.git', 'node_modules']);
 const output = (text: string) => ({
@@ -21,6 +24,7 @@ function refused(message = 'Path must stay inside the assigned worktree, without
 export interface RoleTools {
   tools: ToolDefinition[];
   settle(): Promise<void>;
+  snapshotMutations(): MutationEvidence[];
 }
 
 // This limits supported tool operations; approved project commands are trusted
@@ -30,7 +34,15 @@ export async function confinedTools(
 ): Promise<RoleTools> {
   const root = await realpath(cwd);
   const active = new Set<Promise<unknown>>();
+  const mutations: MutationEvidence[] = [];
+  let mutationBytes = 2;
+  let toolQueue: Promise<unknown> = Promise.resolve();
   let fatal: PreflightError | undefined;
+  const evidenceFailure = (message: string): never => {
+    fatal ??= new PreflightError('MUTATION_EVIDENCE_INVALID', message);
+    throw fatal;
+  };
+  const sha256 = (content: Buffer | string) => createHash('sha256').update(content).digest('hex');
   const guard = async (input: string, missing = false): Promise<string> => {
     // Owned worktrees may themselves live below the controller's .git directory.
     // Inspect only the requested suffix, never that trusted absolute root prefix.
@@ -67,13 +79,41 @@ export async function confinedTools(
   const write = async (input: string, content: string) => {
     if (Buffer.byteLength(content) > 4 * 1024 * 1024) throw refused('Write is limited to 4 MiB');
     const path = await guard(input, true);
-    const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW, 0o644);
+    let before: Buffer | null;
+    try { before = await read(path); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      before = null;
+    }
+    const beforeSha256 = before === null ? null : sha256(before);
+    const afterSha256 = sha256(content);
+    // Identical writes cannot manufacture evidence that a test changed earlier.
+    if (beforeSha256 === afterSha256) return;
+    const event: MutationEvidence = {
+      order: mutations.length + 1, path: relative(root, path).split(sep).join('/'), beforeSha256, afterSha256,
+    };
+    const eventBytes = Buffer.byteLength(JSON.stringify(event)) + (mutations.length ? 1 : 0);
+    if (mutations.length >= 4096 || mutationBytes + eventBytes > 2 * 1024 * 1024) {
+      evidenceFailure('Supported-write evidence capacity is exhausted; this write was not applied; preserve work and refuse submission');
+    }
+    // All supported tool executions are serialized below. Observe disk bytes,
+    // never the model's claims; even a failed/partial write invalidates evidence.
     try {
-      const info = await handle.stat();
-      if (!info.isFile() || info.nlink > 1) throw refused();
-      await handle.truncate(0);
-      await handle.writeFile(content);
-    } finally { await handle.close(); }
+      const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW, 0o644);
+      try {
+        const info = await handle.stat();
+        if (!info.isFile() || info.nlink > 1) throw refused();
+        await handle.truncate(0);
+        await handle.writeFile(content);
+      } finally { await handle.close(); }
+      const actualAfter = sha256(await read(path));
+      if (actualAfter !== afterSha256) evidenceFailure('Supported write did not preserve its observed bytes; submission is unavailable');
+      mutations.push({ ...event, afterSha256: actualAfter });
+      mutationBytes += eventBytes;
+    } catch (error) {
+      if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') fatal = error;
+      evidenceFailure('Supported write or its byte observation failed; preserve work and refuse submission');
+    }
   };
   const entries = async (input: string) => {
     const path = await guard(input);
@@ -164,10 +204,25 @@ export async function confinedTools(
   bashTool.execute = async (_id, params, signal) => {
     if (!['prepare', 'check', 'accept'].includes(params.command) || params.timeout !== undefined || !resources) throw refused('Only approved prepare/check/accept commands without extra parameters are supported');
     const phase = params.command as 'prepare' | 'check' | 'accept';
-    const text = await run(contract.commands[phase], {
-      cwd: root, signal, timeoutMs: contract.commandTimeoutMs, label: `Agent ${phase}`,
-      env: { ...commandEnv, FLOW_RESOURCE_DIR: resources },
-    });
+    const before = await workingTreeDigest(root);
+    let text: string | undefined;
+    let failure: unknown;
+    try {
+      text = await run(contract.commands[phase], {
+        cwd: root, signal, timeoutMs: contract.commandTimeoutMs, label: `Agent ${phase}`,
+        env: { ...commandEnv, FLOW_RESOURCE_DIR: resources },
+      });
+    } catch (error) { failure = error; }
+    if (failure instanceof PreflightError && failure.code === 'PROCESS_UNQUIESCED') throw failure;
+    try {
+      if (await workingTreeDigest(root) !== before) {
+        evidenceFailure('An approved Agent command changed source outside supported write/edit observation; refuse submission');
+      }
+    } catch (error) {
+      if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') fatal = error;
+      evidenceFailure('Cannot verify source preservation after an Agent command; preserve work and refuse submission');
+    }
+    if (failure) throw failure;
     return output(text || `${phase} completed; this is not delivery evidence`);
   };
   const definitions: ToolDefinition<any, any>[] = [readTool, editTool, writeTool, lsTool, findTool, grepTool, bashTool];
@@ -181,11 +236,14 @@ export async function confinedTools(
         const signal = outerSignal && args[2] ? AbortSignal.any([outerSignal, args[2]]) : outerSignal ?? args[2];
         signal?.throwIfAborted();
         if (fatal) throw fatal;
-        const work = (async () => {
+        const work = toolQueue.then(async () => {
+          signal?.throwIfAborted();
+          if (fatal) throw fatal;
           const params = args[1] as { path?: string };
           if (name !== 'bash') await guard(params.path ?? '.', name === 'write');
           return tool.execute(args[0], args[1], signal, args[3], args[4]);
-        })();
+        });
+        toolQueue = work.catch(() => {});
         active.add(work);
         try { return await work; }
         catch (error) {
@@ -195,7 +253,20 @@ export async function confinedTools(
       },
     };
   });
-  return { tools, async settle() { await Promise.allSettled([...active]); if (fatal) throw fatal; } };
+  return {
+    tools,
+    async settle() {
+      await Promise.allSettled([...active]);
+      // Invalid byte evidence does not imply a live writer. Surface that sticky
+      // error in the idle snapshot instead of misclassifying it as unquiesced.
+      if (fatal?.code === 'PROCESS_UNQUIESCED') throw fatal;
+    },
+    snapshotMutations() {
+      if (active.size) throw new PreflightError('PROCESS_UNQUIESCED', 'Cannot snapshot supported writes before tools settle');
+      if (fatal) throw fatal;
+      return mutations.map(event => ({ ...event }));
+    },
+  };
 }
 
 function boundedLimit(value: number | undefined, fallback: number): number {

@@ -49,7 +49,7 @@ export async function integrateTicket(input: ExecutionInput, submitted: TicketRe
   }
   const versions: Versions = { H, B, C };
   let candidate: GateEvidence;
-  try { candidate = await ticketGate(input, ticket, versions, 'candidate'); }
+  try { candidate = await ticketGate(input, ticket, versions, 'candidate', submitted.implementationEvidence); }
   catch (error) {
     if (error instanceof ReviewBlocked && !signal.aborted) {
       await remote.comment(before.number, `Independent review blocked Ticket #${ticket.issue.number}.\n\n`
@@ -91,7 +91,7 @@ export async function integrateTicket(input: ExecutionInput, submitted: TicketRe
     await input.assertScope();
     const total = await ensureDraftTotal(input);
     if (!total) throw new PreflightError('DELIVERY_NO_DIFF', 'Merged result has no effective main difference; preserve it and request a decision');
-    const actual = M === C ? candidate : await ticketGate(input, ticket, { ...versions, M }, 'actual');
+    const actual = M === C ? candidate : await ticketGate(input, ticket, { ...versions, M }, 'actual', submitted.implementationEvidence);
     await input.assertScope();
     await requireRemoteHead(cwd, input.feature, M);
     const actualPr = await remote.pull(before.number);
