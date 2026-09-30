@@ -17,16 +17,16 @@ const privacyNote = `\n\n## Evidence privacy fixture\n\nThese non-functional, sy
 
 const requirement = `First add a real CLI acceptance assertion named whitespace-only-rejected to fixture.mjs; preserve every existing acceptance assertion and executable check. Apply this single rule: reject with exit code 2 and empty stdout if the name is missing, contains CR or LF, or name.trim() === ''; otherwise emit the existing greeting with the accepted name's exact original contents. The emptiness check uses JavaScript String.trim whitespace semantics; cover spaces, TAB, form feed, vertical tab, NBSP (U+00A0) and U+2003. Use trim only for emptiness detection, never to normalize an accepted name or its greeting. Preserve the exact Ada greeting and meaningful surrounding whitespace in accepted names. Only app.mjs and fixture.mjs may change. This Ticket requires additive acceptance coverage under the project rule permitting new behavior assertions before implementation; preserve every existing assertion and executable check. Do not change .pi/flow.json, commands, AGENTS.md or publish.mjs. Internal gates may merge the Ticket PR into its feature branch and close the Ticket only after actual-version evidence is complete. Keep the Spec open and total PR Draft; never merge main.`;
 
-export async function integrationFixture(t, scenario) {
+export async function integrationFixture(t, scenario, options = {}) {
   const identity = api(`repos/${repository}`).id;
   assert.ok(Number.isSafeInteger(identity) && identity > 0);
   const lockKey = createHash('sha256').update(`github.com:${identity}`).digest('hex').slice(0, 24);
   const socket = `/tmp/pi-flow-${process.getuid()}-${lockKey}.sock`;
   await assert.rejects(access(socket), { code: 'ENOENT' }, 'never take over an existing controller or stale socket');
-  const fixed = scenario === 'real-integration' ? undefined : await integrationProvider(t, scenario);
+  const fixed = (options.real ?? scenario === 'real-integration') ? undefined : await integrationProvider(t, scenario);
   const privacy = scenario === 'actual-review-blockers-recorded';
   const f = await fixture(t, scenario, {
-    stage: 'T3', fixed, preserveOnPass: scenario !== 'real-integration',
+    stage: options.stage ?? 'T3', fixed, preserveOnPass: scenario !== 'real-integration',
     specBody: `## Problem Statement\n\nImplement JavaScript String.trim blank-name rejection in the synthetic greeting CLI. ${requirement}\n\n## Acceptance criteria\n\n- Add the named CLI assertion before implementation, covering spaces, TAB, form feed, vertical tab, NBSP (U+00A0) and U+2003 while preserving existing checks.\n- Reject a missing name, a name containing CR or LF, or a name with name.trim() === ''; otherwise preserve the accepted name's exact original contents in the greeting.\n- Deliver one independently reviewed Ticket PR through candidate and actual-version gates.\n- After verified integration close the Ticket, keep Spec open and total PR Draft, and preserve main.${privacy ? privacyNote : ''}`,
     ticketBody: spec => `## What to build\n\n${requirement}\n\nPart of #${spec}.\n\n## Acceptance criteria\n\n- Reject with exit code 2 and no stdout if the name is missing, contains CR or LF, or name.trim() === ''; otherwise accept it.\n- The blank-name check uses JavaScript String.trim semantics; cover spaces, TAB, form feed, vertical tab, NBSP (U+00A0) and U+2003.\n- Ada and all accepted names, including meaningful surrounding whitespace, preserve their exact original contents in the greeting; use trim only for emptiness detection, never output normalization.\n- The candidate and actual merge acceptance reports include greeting-for-name, missing-name-rejected and whitespace-only-rejected.\n\n## Blocked by\n\nNone`,
   });
@@ -46,9 +46,9 @@ export async function integrationFixture(t, scenario) {
   });
   fixed?.setImplementation(await implementationFiles(f.project, scenario === 'review-rejects-self-approval'));
   const contract = JSON.parse(await readFile(join(f.project, '.pi/flow.json'), 'utf8'));
-  const mode = ['real-integration', 'review-rejects-self-approval', 'actual-review-blockers-recorded', 'review-response-too-large'].includes(scenario) ? 'observe' : scenario;
+  const mode = options.observerMode ?? (['real-integration', 'review-rejects-self-approval', 'actual-review-blockers-recorded', 'review-response-too-large'].includes(scenario) ? 'observe' : scenario);
   let confirmation;
-  const pi = await f.open({ onConfirm: event => { confirmation = event.message; return true; }, extensions: [fileURLToPath(new URL('./fixtures/integration-bridge.mjs', import.meta.url))] });
+  const pi = await f.open({ onConfirm: event => { confirmation = event.message; return true; }, extensions: [fileURLToPath(new URL('./fixtures/integration-bridge.mjs', import.meta.url)), ...(options.extensions ?? [])] });
   assert.equal((await pi.request('prompt', { message: `/fixture-integration ${JSON.stringify({ mode, repository, spec: f.spec.number, ticket: f.ticket.number })}` })).success, true);
   return { ...f, pi, fixed, contract, privacy, get confirmation() { return confirmation; },
     async run() {

@@ -139,7 +139,7 @@ selected coverage, source version, assertions and retained remote links. Failed
 workspaces are preserved; the private `*.local.json` locator must not be published.
 Use the documented HTTP/1.1 environment above if the proxy drops HTTP/2 requests.
 The fault suite additionally verifies Ticket prepare/cleanup source drift and a
-successful remote push whose CLI response is lost; it uses explicitly loaded
+successful remote push whose CLI response is lost and exact readback is unavailable; it uses explicitly loaded
 test process wrappers and a fixed loopback model, not real-model quality evidence.
 The npm scripts default to the repository's locked pi version; `PI_BIN` explicitly
 selects another installed CLI, which is recorded separately.
@@ -179,6 +179,54 @@ GitHub cannot atomically compare the expected base in its merge request. A base
 race may already have merged before detection. Such a result is reported as
 `integrated-unaccepted`; its actual commits and pending or applied Issue closure
 are preserved, ownership is retained, and no downstream work is released.
+
+## Infrastructure failure acceptance
+
+```sh
+PI_BIN=/path/to/approved/pi NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
+FLOW_ACCEPTANCE_REPOSITORY=nanzhi84/pi-implement-flow-acceptance \
+RUN_GITHUB_E2E=1 npm run test:infrastructure
+```
+
+Eighteen cases use real pi, the installed SDK, GitHub and project commands with
+explicit loopback HTTP or CLI fault injection. They check SDK-only bounded
+recovery, exhausted/permanent failures, cancellation during retry, safe remote
+diagnostics, permanent certificate configuration versus unclassified TLS, and
+strict check/accept failure classification. Select one fresh
+case with `FLOW_INFRASTRUCTURE_SCENARIO`; the runner records skips and never
+retries an individual failed operation. `artifacts/infrastructure.json` and
+timestamped copies bind final test exit, source SHA/content, host versions and
+sanitized assertions. Private `*.local.json` fixture locators must not be published.
+This fixed-model suite needs authenticated `gh` and sole ownership of the selected
+synthetic repository; real OpenAI integration is verified separately on the same
+frozen source. See [failure scenarios](docs/testing/t9a-scenarios.md) and
+[failure-report protocol](docs/adr/0004-infrastructure-failure-boundaries.md).
+
+## Remote-result reconciliation acceptance
+
+A failed remote write is read back at its exact target before the flow continues.
+An applied result can be reused; unavailable or conflicting facts retain ownership
+and stop. Read-command startup failure never proves a write was not sent. There
+is no automatic write retry, operation ledger, or exactly-once network promise.
+Projects may explicitly approve a content-addressed Release locator in their
+[execution contract](docs/execution-contract.md); incomplete assets, different
+raw bytes or an incorrect actual Git tag do not qualify.
+
+```sh
+PI_BIN="$HOME/.npm-global/bin/pi" PI_PROVIDER=openai PI_MODEL=gpt-6-astra \
+NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
+RUN_GITHUB_E2E=1 FLOW_ACCEPTANCE_REPOSITORY=nanzhi84/pi-implement-flow-reconciliation-acceptance \
+npm run test:reconciliation
+```
+
+Thirteen scenarios bind the frozen source and final runner exit. The complete
+response-loss path uses real OpenAI implementation and independent reviews;
+other cases explicitly inject CLI faults or fixed model responses while using
+actual pi, GitHub, commits and artifacts. Derived-Issue adapter cases do not
+stand in for later automatic repair/sync workflows. Use the dedicated fixture
+baseline and optional HTTP/1.1 settings in [T9B scenarios](docs/testing/t9b-scenarios.md).
+`artifacts/reconciliation-runs/` preserves every result, including failed runs;
+source review or a test definition alone is not acceptance.
 
 ## Development delivery
 

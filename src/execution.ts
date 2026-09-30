@@ -9,7 +9,8 @@ import type { ImplementationEvidence } from './mutation-evidence.ts';
 import type { ApprovedInstruction } from './evidence-context.ts';
 import { digest } from './probe.ts';
 import { Remote, type PullRequest } from './remote.ts';
-import { createTicketWorkspace, checkTicketWorkspace, commitTicket, pushNew, requireRemoteHead } from './ticket-workspace.ts';
+import { createTicketWorkspace, checkTicketWorkspace, commitTicket } from './ticket-workspace.ts';
+import { pushExpected, requireRemoteHead } from './remote-git.ts';
 
 export interface ExecutionInput {
   cwd: string; repository: string; feature: string; base: string; plan: Plan;
@@ -27,7 +28,7 @@ export async function executeFirstTicket(input: ExecutionInput): Promise<TicketR
   const ticket = plan.tickets.find(item => item.issue.state === 'open' && item.dependencies.length === 0);
   if (!ticket) throw new PreflightError('DEPENDENCY_UNVERIFIED', 'No independent open Ticket; closed Issues alone do not prove dependency delivery');
   await input.assertScope();
-  await pushNew(cwd, base, feature, signal);
+  await pushExpected(cwd, base, feature, undefined, signal);
   const workspace = await createTicketWorkspace(cwd, plan.spec.number, ticket.issue.number, base, signal);
   const remote = new Remote(cwd, repository, signal);
   const specComments = await remote.comments(plan.spec.number);
@@ -67,7 +68,7 @@ export async function executeFirstTicket(input: ExecutionInput): Promise<TicketR
   }
   await input.assertScope();
   await requireRemoteHead(cwd, feature, base);
-  await pushNew(workspace.cwd, sha, workspace.branch, signal);
+  await pushExpected(workspace.cwd, sha, workspace.branch, undefined, signal);
   signal.throwIfAborted();
   const body = `Ticket #${ticket.issue.number} for Spec #${plan.spec.number}.\n\n`
     + `Original requirement: https://github.com/${repository}/issues/${ticket.issue.number}\n\n`

@@ -63,7 +63,7 @@ for (const scenario of ['prepare-drift', 'cleanup-drift']) {
   });
 }
 
-test('accepted feature push with failed client retains ownership without replay', { skip: skip('push-unknown'), timeout: 1_200_000 }, async t => {
+test('accepted feature push with lost response and unavailable readback retains ownership without replay', { skip: skip('push-unknown'), timeout: 1_200_000 }, async t => {
   const identity = api(`repos/${repository}`).id;
   const key = createHash('sha256').update(`github.com:${identity}`).digest('hex').slice(0, 24);
   const socket = `/tmp/pi-flow-${process.getuid()}-${key}.sock`;
@@ -107,7 +107,7 @@ test('accepted feature push with failed client retains ownership without replay'
   }
   noTicketDelivery(f);
   assert.equal(f.worktrees().length, 1, 'no Ticket workspace or model dispatch after unknown feature write');
-  f.pass({ boundary: 'Real pi/SDK/GitHub; real accepted Git push followed by injected client exit 1',
+  f.pass({ boundary: 'Real pi/SDK/GitHub; real accepted Git push followed by injected client exit 1 and unavailable exact-ref controller readback; external read verifies the applied branch',
     featureSha: feature.commit.sha, modelRequests: 0, commandFault: { phase: 'push-unknown', attempts: 1, applied: 1 },
     assertions: ['real remote branch exists at baseline', 'unknown result classified', 'exactly one write attempt', 'session change reports stopping', 'ownership retained', 'competing clone refused', 'no Ticket dispatch or PR', 'Issues open', 'remote main and original checkout unchanged'] });
 });

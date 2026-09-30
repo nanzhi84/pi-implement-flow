@@ -1,8 +1,9 @@
-import { join } from 'node:path';
+import { evidencePath } from './evidence-location.ts';
 import { instructionSnapshot } from './agents.ts';
 import { PreflightError, readContract } from './contract.ts';
 import { publishEvidence, type Evidence } from './evidence.ts';
 import { evidenceContext } from './evidence-context.ts';
+import { runReportedCommand } from './command-outcome.ts';
 import type { ExecutionInput } from './execution.ts';
 import type { TicketPlan } from './plan.ts';
 import { verifyMutationEvidence, type ImplementationEvidence } from './mutation-evidence.ts';
@@ -26,18 +27,27 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
   const approvedContext = evidenceContext(input.repository, input.plan, ticket, contract, approvedInstructions, input.scopeDigest);
   ctx.ui.notify(`GATE_STARTED: ${phase} ${codeSha}`, 'info');
   const workspace = await createProbe(cwd, codeSha, signal);
-  const reportPath = join(workspace.resources, 'gate.json');
+  const reportPath = evidencePath(workspace.resources, contract, 'gate.json');
   const env = { FLOW_RESOURCE_DIR: workspace.resources, FLOW_CODE_SHA: codeSha, FLOW_REPOSITORY: input.repository,
     FLOW_REPORT: reportPath, FLOW_STAGE: phase };
   if (digest(await readContract(workspace.cwd)) !== digest(contract)
     || digest(await instructionSnapshot(workspace.cwd, contract)) !== digest(approvedInstructions)) {
     throw new PreflightError('SCOPE_CHANGED', 'Candidate changed approved commands or role instructions; preserve work and request a scope decision');
   }
-  const execute = async (name: keyof typeof contract.commands, cancellable = true) => {
-    const output = await run(contract.commands[name], { cwd: workspace.cwd, env,
-      signal: cancellable ? signal : undefined, timeoutMs: contract.commandTimeoutMs, label: `${phase} ${name}` });
-    await workspace.check();
-    return output;
+  const execute = async (name: keyof typeof contract.commands, cancellable = true, extraEnvironment: NodeJS.ProcessEnv = {}) => {
+    const options = { cwd: workspace.cwd, env: { ...env, ...extraEnvironment }, operation: name, signal: cancellable ? signal : undefined,
+      timeoutMs: contract.commandTimeoutMs, label: `${phase} ${name}` };
+    try {
+      const output = name === 'check' || name === 'accept'
+        ? await runReportedCommand(name, codeSha, contract.commands[name], options)
+        : await run(contract.commands[name], options);
+      await workspace.check();
+      return output;
+    } catch (error) {
+      if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
+      await workspace.check();
+      throw error;
+    }
   };
   let acceptance: ReturnType<typeof acceptanceResult> | undefined;
   let review: ReviewResult | undefined;
@@ -64,7 +74,7 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
   try { await execute('cleanup', false); }
   catch (error) {
     if (error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED') throw error;
-    throw new PreflightError('CLEANUP_FAILED', 'Gate cleanup failed; preserve candidate and resources; no integration authority');
+    throw new PreflightError('CLEANUP_FAILED', 'Gate cleanup failed; preserve candidate and resources; no integration authority', error instanceof PreflightError ? error.detail : undefined);
   }
   if (failure) throw failure;
   signal.throwIfAborted();
@@ -81,7 +91,7 @@ export async function ticketGate(input: ExecutionInput, ticket: TicketPlan, vers
   // Once publication begins, let it finish and verify bytes even if a pause arrives.
   // It is one trusted project operation, not permission to start the next operation.
   const evidence = await publishEvidence({ cwd, repository: input.repository, codeSha, contract, path: reportPath, report,
-    beforePublish: () => signal.throwIfAborted(), publish: () => execute('publish', false) });
+    beforePublish: () => signal.throwIfAborted(), publish: environment => execute('publish', false, environment) });
   signal.throwIfAborted();
   await workspace.remove();
   ctx.ui.notify(`GATE_PASSED: ${phase} ${codeSha} ${evidence.url}`, 'info');

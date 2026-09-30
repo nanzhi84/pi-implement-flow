@@ -209,7 +209,7 @@ export async function confinedTools(
     let failure: unknown;
     try {
       text = await run(contract.commands[phase], {
-        cwd: root, signal, timeoutMs: contract.commandTimeoutMs, label: `Agent ${phase}`,
+        cwd: root, signal, timeoutMs: contract.commandTimeoutMs, label: `Agent ${phase}`, operation: phase,
         env: { ...commandEnv, FLOW_RESOURCE_DIR: resources },
       });
     } catch (error) { failure = error; }
