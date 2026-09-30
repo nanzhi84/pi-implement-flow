@@ -4,11 +4,16 @@ import { PreflightError, readContract } from './contract.ts';
 import { ReportedBehaviorFailure } from './command-outcome.ts';
 import { claimRepository } from './control.ts';
 import { GitHub } from './github.ts';
-import { readPlan, planScope } from './plan.ts';
+import { readPlan } from './plan.ts';
 import { digest, probeProject } from './probe.ts';
 import { baseline } from './workspace.ts';
-import { executeFirstTicket, type TicketResult } from './execution.ts';
-import { integrateTicket, type IntegrationFacts } from './integration.ts';
+import { requireRemoteHead } from './remote-git.ts';
+import { type TicketResult } from './execution.ts';
+import { type IntegrationFacts } from './integration.ts';
+import { scheduleTickets } from './scheduler.ts';
+import { ScopeGuard } from './scope.ts';
+import { ActivitySlots } from './slots.ts';
+import { ProjectResources } from './resources.ts';
 
 export class FlowController {
   private status = 'idle';
@@ -17,6 +22,9 @@ export class FlowController {
   private release?: () => Promise<void>;
   private unsafeProcess = false;
   private unknownRemote = false;
+  private retainedResources = false;
+  private stopReason?: unknown;
+  private stopLevel = -1;
   private tickets: TicketResult[] = [];
   private integration?: IntegrationFacts;
 
@@ -34,12 +42,13 @@ export class FlowController {
     this.status = 'preflighting';
     this.tickets = [];
     this.integration = undefined;
+    this.unsafeProcess = false; this.unknownRemote = false; this.retainedResources = false; this.stopReason = undefined; this.stopLevel = -1;
     this.task = this.preflight(number, concurrency, ctx, signal, execute);
     try { await this.task; } finally { this.task = undefined; }
   }
 
   private async releaseOwnership(): Promise<void> {
-    if (!this.release || this.unsafeProcess || this.unknownRemote || (this.integration && this.integration.phase !== 'delivered')) return;
+    if (!this.release || this.unsafeProcess || this.unknownRemote || this.retainedResources || (this.integration && this.integration.phase !== 'delivered')) return;
     await this.release();
     this.release = undefined;
   }
@@ -50,7 +59,7 @@ export class FlowController {
     ctx.ui.notify(`FLOW_PAUSING: ${reason}; waiting for commands to stop`, 'info');
     this.abort?.abort();
     await this.task;
-    if (this.unsafeProcess || this.unknownRemote || (this.integration && this.integration.phase !== 'delivered')) {
+    if (this.unsafeProcess || this.unknownRemote || this.retainedResources || (this.integration && this.integration.phase !== 'delivered')) {
       this.status = this.integration && this.integration.phase !== 'delivered'
         ? `integrated-unaccepted (${this.integration.phase}; ${this.integration.M}; ownership retained)`
         : 'stopping (unreconciled process or remote operation; ownership retained)';
@@ -118,47 +127,45 @@ export class FlowController {
         this.status = 'paused (preflight-only)';
       } else {
         this.status = 'running';
-        // Once our feature exists, baseline() must no longer be used as a fresh-start check.
-        const assertScope = async () => {
-          signal.throwIfAborted();
-          const currentContract = await readContract(ctx.cwd);
-          const currentPlan = await readPlan(github, number);
-          const confirmedClosure = this.integration && ['closed-unaccepted', 'delivered'].includes(this.integration.phase)
-            ? this.integration.ticket : undefined;
-          if (currentPlan.spec.state !== plan.spec.state || currentPlan.tickets.some(ticket => {
-            const original = plan.tickets.find(item => item.issue.number === ticket.issue.number);
-            const expected = ticket.issue.number === confirmedClosure ? 'closed' : original?.issue.state;
-            return ticket.issue.state !== expected;
-          })) throw new PreflightError('SCOPE_CHANGED', 'Issue lifecycle changed outside the verified controller closure; preserve actual facts and reconcile');
-          if (digest(currentContract) !== digest(contract) || digest(planScope(currentPlan)) !== digest(planScope(plan))
-            || digest(await instructionSnapshot(ctx.cwd, currentContract)) !== digest(instructions)) {
-            throw new PreflightError('SCOPE_CHANGED', 'Scope or contract changed; prior approval cannot authorize delivery');
-          }
-          signal.throwIfAborted();
+        const stop = (error: unknown, retainOwnership = false) => {
+          const code = error instanceof PreflightError ? error.code : '';
+          const level = code === 'PROCESS_UNQUIESCED' ? 4
+            : ['REMOTE_RESULT_UNKNOWN', 'PUBLISH_UNRESOLVED'].includes(code) ? 3 : retainOwnership ? 2 : error === signal.reason ? 0 : 1;
+          if (level > this.stopLevel) { this.stopReason = error; this.stopLevel = level; }
+          this.unsafeProcess ||= code === 'PROCESS_UNQUIESCED';
+          this.unknownRemote ||= ['REMOTE_RESULT_UNKNOWN', 'PUBLISH_UNRESOLVED'].includes(code);
+          this.retainedResources ||= retainOwnership;
+          this.abort?.abort();
         };
+        const scope = new ScopeGuard({ plan, contract, instructions }, async () => {
+          await requireRemoteHead(ctx.cwd, 'main', sha);
+          const currentContract = await readContract(ctx.cwd);
+          return { plan: await readPlan(github, number), contract: currentContract,
+            instructions: await instructionSnapshot(ctx.cwd, currentContract) };
+        }, signal, stop);
+        const notify = (message: string) => ctx.ui.notify(message, 'info');
         const execution = { cwd: ctx.cwd, repository: github.repository, feature,
-          base: sha, plan, contract, approvedInstructions: instructions,
-          scopeDigest: approvedDigest, ctx: { ...ctx, model: approvedModel }, signal, assertScope };
-        let result = await executeFirstTicket(execution);
-        this.tickets = [result];
-        if (result.pr) {
-          this.status = 'integrating';
-          result = await integrateTicket(execution, result, facts => {
-            this.integration = facts;
-            this.status = facts.phase === 'delivered' ? 'running' : `integrated-unaccepted (${facts.phase}; ${facts.M})`;
-            this.tickets = [{ ...result, state: facts.phase === 'delivered' ? 'delivered' : 'integrated-unaccepted' }];
-          });
-        }
-        this.tickets = [result];
-        this.status = result.state === 'blocked' ? 'blocked (Ticket requires a decision)' : 'paused (scheduler-not-installed)';
+          initialMainSha: sha, plan, contract, approvedInstructions: instructions,
+          scopeDigest: approvedDigest, ctx: { ...ctx, model: approvedModel }, signal, scope, stop,
+          activities: new ActivitySlots(concurrency, stop, notify),
+          resources: new ProjectResources(contract.resources.mode, stop, notify) };
+        const outcome = await scheduleTickets(execution, result => {
+          this.tickets = [...this.tickets.filter(ticket => ticket.number !== result.number), result];
+          ctx.ui.notify(`FLOW_TICKET_STATE: ${JSON.stringify({ ticket: result.number, state: result.state, pr: result.pr?.number })}`, 'info');
+        }, facts => {
+          this.integration = facts;
+          this.status = facts.phase === 'delivered' ? 'running' : `integrated-unaccepted (${facts.phase}; ${facts.M})`;
+        });
+        this.status = outcome === 'blocked' ? 'blocked (Tickets require decisions or verified dependencies)' : 'paused (final-acceptance-not-installed)';
       }
       ctx.ui.notify(`FLOW_STARTED: Spec #${number}; baseline ${sha}; ${this.status}`, 'info');
-    } catch (error) {
-      this.unsafeProcess = error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED';
-      this.unknownRemote = error instanceof PreflightError && ['REMOTE_RESULT_UNKNOWN', 'PUBLISH_UNRESOLVED'].includes(error.code);
+    } catch (caught) {
+      const error = this.stopReason ?? caught;
+      this.unsafeProcess ||= error instanceof PreflightError && error.code === 'PROCESS_UNQUIESCED';
+      this.unknownRemote ||= error instanceof PreflightError && ['REMOTE_RESULT_UNKNOWN', 'PUBLISH_UNRESOLVED'].includes(error.code);
       this.status = this.integration && this.integration.phase !== 'delivered'
         ? `integrated-unaccepted (${this.integration.phase}; ${this.integration.M}; ownership retained)`
-        : this.unsafeProcess || this.unknownRemote ? 'stopping (reconciliation required)' : signal.aborted ? 'paused (cancelled)' : started ? 'failed (work preserved; reconciliation required)' : 'idle (start refused)';
+        : this.unsafeProcess || this.unknownRemote || this.retainedResources ? 'stopping (reconciliation required)' : signal.aborted && !this.stopReason ? 'paused (cancelled)' : started ? 'failed (work preserved; reconciliation required)' : 'idle (start refused)';
       ctx.ui.notify(error instanceof PreflightError
         ? `${error.code}: ${error.message}; ${started ? 'work preserved; no further dispatch or integration' : 'no dispatch'}`
         : signal.aborted ? 'FLOW_PAUSED: start cancelled; no late result can authorize dispatch'

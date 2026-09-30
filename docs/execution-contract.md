@@ -2,13 +2,22 @@
 
 `/flow start <issue-number> [--concurrency N]` defaults to concurrency 2. It validates
 and confirms the exact plan, verifies probes and independent-role readiness, then
-executes one independent open Ticket. T3 gates the exact merge candidate through
-checks, behavioral acceptance, a fresh independent read-only review and verified
-remote evidence before merging its Ticket PR into `flow/spec-N`. A distinct actual
-merge SHA gets a full new gate. Only verified actual delivery closes the Ticket;
-the Spec remains open and the total PR stays Draft. It pauses at
-`scheduler-not-installed`. `/flow preflight` runs only preflight/probes and stays at
-`preflight-only`; neither result is completed Spec delivery.
+executes independent open Tickets in isolated worktrees. Active project commands
+and implementation/review roles share the configured concurrency limit. Resource
+contracts either provide per-worktree isolation or serialize the full preparation,
+use and cleanup lifecycle. Waiting for dependencies, a resource or integration
+holds no compute slot. Explicit local implementation questions block that Ticket
+and its dependents while unrelated Tickets may proceed.
+
+Integration remains serial from selecting the latest accepted feature B through
+C gate, merge, M gate, evidence, verified closure and final scope/ref checks. Only
+that complete Delivery releases dependencies; Issue closure alone is insufficient.
+A downstream Ticket fixes its starting SHA under the same integration control and
+verifies all dependency M commits are ancestors. An old implementation may submit
+after another Ticket integrates, but it must pass new gates against current B.
+All Tickets delivered pauses at `final-acceptance-not-installed`; the Spec remains
+open, total PR Draft and main unchanged. `/flow preflight` remains preflight-only.
+Neither mode claims completed Spec delivery.
 
 ## Preconditions and trust
 
