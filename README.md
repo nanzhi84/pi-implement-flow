@@ -2,7 +2,7 @@
 
 A pi extension implementing [Spec #1](https://github.com/nanzhi84/pi-implement-flow/issues/1).
 
-**Current slice: T4 dependency scheduling with serial gated integration.**
+**Current slice: T5 evidenced same-Ticket repair with dependency scheduling.**
 `/flow start` confirms the plan, runs real isolated probes, and implements explicit
 independent Tickets in separate worktrees. The concurrency limit covers active
 project commands and Agent roles; waiting Tickets hold no compute slot. Resource
@@ -10,10 +10,17 @@ leases span prepare through cleanup, and exclusive contracts serialize that
 whole lifecycle. Integration is serial: every Ticket is checked on the latest
 accepted feature base, with fresh candidate and actual-version gates, independent
 read-only review and downloaded evidence. Only verified actual delivery and
-completed closure unlock dependent Tickets. Local implementation questions leave
-unrelated Tickets eligible. All current Tickets delivered means
+completed closure unlock dependent Tickets. A strict candidate behavior failure,
+independent review blocker or reproducible text conflict can authorize repair
+after cleanup and a complete downloaded failure artifact. Repair appends to the
+same open PR and repeats the full gates. Progress must resolve actual assertions
+or independently verified stable review findings; code noise and new URLs do
+not count. There is no repair-count limit. Questions and verified no-progress
+pause the affected Ticket while unrelated Tickets remain eligible.
+All current Tickets delivered means
 `paused (final-acceptance-not-installed)`: the Spec stays open, total PR Draft and
-main unchanged. Automatic repair/recovery and final Spec delivery remain later slices.
+main unchanged. Repair after an already merged M fails, restart recovery and
+final Spec delivery remain later slices.
 Implementations commit/push before queueing; their first Ticket PR is created only
 after serial integration selects the latest base, because an existing GitHub PR
 can retain its creation-time base and candidate.
@@ -258,3 +265,32 @@ and local ambiguity, exclusive shared resources, latest-base semantic failure, a
 Reports in `artifacts/scheduling.json` include exact source fingerprints, runtime,
 exit statuses, GitHub versions and downloaded hashes. Source/type checks or a
 skipped local run do not constitute remote acceptance.
+
+## T5 repair acceptance
+
+The [failure scenarios](docs/testing/t5-scenarios.md) and
+[repair/provenance decision](docs/adr/0007-progressive-repair.md) define seven
+actual pi/SDK/GitHub scenarios. Select the exclusive repair fixture explicitly:
+
+```sh
+PI_BIN="$HOME/.npm-global/bin/pi" PI_PROVIDER=openai PI_MODEL=gpt-6-astra \
+NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
+RUN_GITHUB_E2E=1 FLOW_ACCEPTANCE_REPOSITORY=nanzhi84/pi-implement-flow-repair-acceptance \
+npm run test:repair
+```
+
+The normal scenario supplies a controlled initial defect, then uses the real
+selected OpenAI model for repair and independent reviews. Other scenarios use
+explicit fixed HTTP model responses with actual tools, executable assertions,
+commits, PRs, comments and downloaded artifacts. They cover five successive
+improvements, unchanged/noisy non-progress, text plus semantic conflicts,
+requirements ambiguity and independently resolved review findings. The conflict
+fixture coordinates on a real upstream submission and remote head; it never sleeps to guess
+queue order or waits for a gate while holding a conflicting resource lease.
+
+Reports in `artifacts/repair-runs/` bind final Node exit and source fingerprints,
+host/local SDK versions, safe environment fields and remote facts. Independent
+raw Git verification checks every edit segment, its complete file coverage and
+the reproducible controller merge tree. `FLOW_REPAIR_SCENARIO` selects one named
+scenario. Failed runs and private workspaces are preserved; `*.local.json` files
+must not be published. These test definitions are not a claim of passing E2E.

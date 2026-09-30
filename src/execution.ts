@@ -78,7 +78,8 @@ export async function submitTicket(input: ExecutionInput, ticket: TicketPlan, ba
   signal.throwIfAborted();
   return { number: ticket.issue.number, ticket, startedFrom: base, head: sha, implementationContextDigest: digest(prompt),
     ownedWorkspace: { cwd: workspace.cwd, resources: workspace.resources, branch: workspace.branch, expectedHead: sha },
-    implementationEvidence: { baseline: base, mutations: result.mutations } };
+    implementationEvidence: { schema: 2, source: 'controller-code-segments', origin: base, head: sha,
+      segments: [{ kind: 'agent-edit', from: base, head: sha, mutations: result.mutations }] } };
 }
 
 // Called by the integration layer only once the feature has a real difference.

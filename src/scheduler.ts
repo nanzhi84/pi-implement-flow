@@ -4,6 +4,7 @@ import { integrateTicket, type Delivery, type IntegrationFacts } from './integra
 import { git } from './process.ts';
 import { SerialControl } from './slots.ts';
 import { pushExpected, requireRemoteHead } from './remote-git.ts';
+import { TicketPaused } from './candidate.ts';
 import type { PullRequest } from './remote.ts';
 
 export async function scheduleTickets(input: ExecutionInput, update: (ticket: TicketResult) => void,
@@ -45,8 +46,8 @@ export async function scheduleTickets(input: ExecutionInput, update: (ticket: Ti
         const submission: Submission = result;
         update({ number, state: 'submitted' });
         await integration.run(signal, async () => {
+          let pr: PullRequest | undefined;
           try {
-            let pr: PullRequest | undefined;
             update({ number, state: 'integrating' });
             const delivery = await integrateTicket(input, submission, acceptedFeatureHead, facts => {
               onFacts(facts);
@@ -59,7 +60,10 @@ export async function scheduleTickets(input: ExecutionInput, update: (ticket: Ti
             acceptedFeatureHead = delivery.M;
             deliveries.set(number, delivery);
             update({ number, state: 'delivered', pr: delivery.pr });
-          } catch (error) { input.stop(error); throw error; }
+          } catch (error) {
+            if (error instanceof TicketPaused) { update({ number, state: 'blocked', pr }); return; }
+            input.stop(error); throw error;
+          }
         });
       } catch (error) {
         firstFailure ??= error;

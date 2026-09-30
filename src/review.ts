@@ -1,8 +1,10 @@
 import type { ImplementationInput } from './agent-run.ts';
 import { runRoleSession } from './agent-session.ts';
 import { PreflightError } from './contract.ts';
+import { validPath } from './code-proof.ts';
+import type { PriorBlocker, ReviewResolution } from './repair-progress.ts';
 
-export type ReviewInput = ImplementationInput & { codeSha: string; scopeDigest: string };
+export type ReviewInput = ImplementationInput & { codeSha: string; scopeDigest: string; previousBlockers?: PriorBlocker[] };
 export interface ReviewBlocker {
   category: 'correctness' | 'security' | 'spec' | 'standard';
   basis: string;
@@ -15,6 +17,7 @@ export interface ReviewResult {
   scopeDigest: string;
   blockers: ReviewBlocker[];
   suggestions: string[];
+  resolutions?: ReviewResolution[];
 }
 const MAX_RESPONSE_BYTES = 48_000;
 const MAX_FINDINGS_BYTES = 48_000;
@@ -32,15 +35,15 @@ function record(value: unknown, keys: string[]): value is Record<string, unknown
 function text(value: unknown): value is string {
   return typeof value === 'string' && !!value.trim() && value.length <= 20_000 && !value.includes('\0');
 }
-function findingsText(blockers: ReviewBlocker[]): string {
-  return blockers.map(finding => `- ${finding.category}: ${finding.basis}\n  Impact: ${finding.impact}\n  Verify: ${finding.verification}`).join('\n');
+function findingsText(blockers: ReviewBlocker[], resolutions: ReviewResolution[] = []): string {
+  return blockers.map(finding => `- ${finding.category}: ${finding.basis}\n  Impact: ${finding.impact}\n  Verify: ${finding.verification}`).join('\n') + resolutions.map(item => `\n- Prior blocker ${item.ref}: ${item.status}\n  Basis: ${item.basis}\n  Evidence: ${JSON.stringify(item.evidence)}`).join('');
 }
 
 export function reviewBlockerComment(ticket: number, phase: 'candidate' | 'actual', review: ReviewResult): string {
   if (!Number.isSafeInteger(ticket) || ticket <= 0) invalid('Review comment requires a valid Ticket identity');
   const body = `Independent review blocked Ticket #${ticket}.\n\n`
     + `Phase: \`${phase}\`\nVersion: \`${review.codeSha}\`\nScope: \`${review.scopeDigest}\`\n\n`
-    + findingsText(review.blockers)
+    + findingsText(review.blockers, review.resolutions)
     + (phase === 'actual'
       ? '\n\nRemote merge already happened; this result is integrated-unaccepted. No closure or downstream release is authorized.'
       : '\n\nNo implementation statement grants approval. The Ticket remains open.');
@@ -50,12 +53,13 @@ export function reviewBlockerComment(ticket: number, phase: 'candidate' | 'actua
   return body;
 }
 
-function result(source: string, expected: Pick<ReviewInput, 'codeSha' | 'scopeDigest'>): ReviewResult {
+function result(source: string, expected: Pick<ReviewInput, 'codeSha' | 'scopeDigest' | 'previousBlockers'>): ReviewResult {
   if (Buffer.byteLength(source, 'utf8') > MAX_RESPONSE_BYTES) invalid('Review Agent result exceeds the 48000 UTF-8 byte response contract');
   let value: unknown;
   try { value = JSON.parse(source); }
   catch { invalid('Review Agent must return one JSON result, without Markdown or extra text'); }
-  if (!record(value, ['kind', 'codeSha', 'scopeDigest', 'blockers', 'suggestions']) || value.kind !== 'review') {
+  const keys = ['kind', 'codeSha', 'scopeDigest', 'blockers', 'suggestions', ...(expected.previousBlockers?.length ? ['resolutions'] : [])];
+  if (!record(value, keys) || value.kind !== 'review') {
     invalid('Review Agent returned an invalid review result');
   }
   if (value.codeSha !== expected.codeSha || value.scopeDigest !== expected.scopeDigest) {
@@ -76,15 +80,41 @@ function result(source: string, expected: Pick<ReviewInput, 'codeSha' | 'scopeDi
       impact: blocker.impact, verification: blocker.verification,
     };
   });
-  if (Buffer.byteLength(findingsText(blockers), 'utf8') > MAX_FINDINGS_BYTES) {
+  const resolutions = expected.previousBlockers?.length ? resolutionResult(value.resolutions, expected.previousBlockers) : undefined;
+  if (Buffer.byteLength(findingsText(blockers, resolutions), 'utf8') > MAX_FINDINGS_BYTES) {
     invalid('Complete review findings exceed the 48000 UTF-8 byte publication contract');
   }
-  return { kind: 'review', codeSha: expected.codeSha, scopeDigest: expected.scopeDigest, blockers, suggestions: value.suggestions };
+  return { kind: 'review', codeSha: expected.codeSha, scopeDigest: expected.scopeDigest, blockers, suggestions: value.suggestions, ...(resolutions ? { resolutions } : {}) };
+}
+
+function resolutionResult(value: unknown, previous: PriorBlocker[]): ReviewResolution[] {
+  if (!Array.isArray(value) || value.length !== previous.length) invalid('Review must cover every prior blocker reference');
+  const seen = new Set<string>();
+  return value.map(item => {
+    if (!record(item, ['ref', 'status', 'basis', 'evidence']) || typeof item.ref !== 'string'
+      || !previous.some(old => old.ref === item.ref) || seen.has(item.ref)
+      || !['resolved', 'unresolved'].includes(item.status as string) || !text(item.basis)
+      || !Array.isArray(item.evidence) || item.evidence.length > 100
+      || (item.status === 'resolved' && !item.evidence.length)) invalid('Invalid prior blocker resolution');
+    seen.add(item.ref);
+    const evidence = item.evidence.map(fact => {
+      if (record(fact, ['command', 'name']) && ['check', 'accept'].includes(fact.command as string)
+        && typeof fact.name === 'string' && /^[a-z0-9._-]{1,80}$/.test(fact.name)) {
+        return { command: fact.command as 'check' | 'accept', name: fact.name };
+      }
+      if (record(fact, ['path', 'blobSha256']) && typeof fact.path === 'string' && validPath(fact.path)
+        && typeof fact.blobSha256 === 'string' && /^[a-f0-9]{64}$/.test(fact.blobSha256)) {
+        return { path: fact.path, blobSha256: fact.blobSha256 };
+      }
+      return invalid('Resolution evidence must identify a current blob or actual named assertion');
+    });
+    return { ref: item.ref, status: item.status as 'resolved' | 'unresolved', basis: item.basis, evidence };
+  });
 }
 
 export async function runReview(input: ReviewInput): Promise<ReviewResult> {
   input.signal.throwIfAborted();
-  const expected = { codeSha: input.codeSha, scopeDigest: input.scopeDigest };
+  const expected = { codeSha: input.codeSha, scopeDigest: input.scopeDigest, previousBlockers: input.previousBlockers };
   if (!/^[a-f0-9]{40}$/.test(expected.codeSha) || !/^[a-f0-9]{64}$/.test(expected.scopeDigest)) {
     invalid('Review requires exact controller-selected commit and scope digest bindings');
   }
@@ -112,5 +142,14 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
     + 'Keep every finding concise, actionable and complete; do not omit blockers or claim approval to fit the budget. '
     + 'Oversized responses are invalid and stop the gate; the controller will never truncate findings or publish partial approval. '
     + 'Copy the exact controller bindings above. Your result does not itself perform delivery or replace native GitHub required review.';
-  return result((await runRoleSession({ ...input, prompt }, 'review')).text, expected);
+  const repairProtocol = input.previousBlockers?.length ? '\nPrior blocker resolution protocol: ' + JSON.stringify(input.previousBlockers)
+    + '\nAdd the resolutions field to the exact JSON above. Return one item for each prior ref, no missing, duplicate or unknown refs: '
+    + '{"ref":"exact stable ref","status":"resolved|unresolved","basis":"specific independent rationale","evidence":[{"path":"repository relative path","blobSha256":"current file SHA256"}]}. '
+    + 'Evidence may instead be {"command":"check|accept","name":"exact observed assertion name"}. '
+    + 'Resolved requires at least one changed current blob or an actually observed prior-false to current-true assertion. '
+    + 'Do not infer a legacy check stdout passed individual assertions. Unresolved may have empty evidence. '
+    + 'Previously reported defects belong in resolutions, with their original stable ref; blockers lists only newly discovered defects. '
+    + 'Changing wording, version SHA, report URL, or implementation claims is not resolution. Preserve existing assertion meaning and coverage. '
+    + 'All response and publication byte limits above still include these fields.' : '';
+  return result((await runRoleSession({ ...input, prompt: prompt + repairProtocol }, 'review')).text, expected);
 }

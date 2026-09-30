@@ -3,8 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "keywords": ["pi-package"],
-  "pi": { "extensions": ["./src/extension.ts"] },
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/extension.ts"
+    ]
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node tests/run-acceptance.mjs",
@@ -12,10 +18,13 @@
     "test:ticket-faults": "node tests/run-ticket-faults.mjs",
     "test:integration": "node tests/run-integration.mjs",
     "test:scheduling": "node tests/run-scheduling.mjs",
+    "test:repair": "node tests/run-repair.mjs",
     "test:infrastructure": "node tests/run-infrastructure.mjs",
     "test:reconciliation": "node tests/run-reconciliation.mjs"
   },
-  "peerDependencies": { "@earendil-works/pi-coding-agent": "*" },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "0.87.1",
     "@types/node": "^24.0.0",
