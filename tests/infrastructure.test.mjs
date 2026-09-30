@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { api, fixture, fixedProvider, persist, repository, waitFor } from './execution-fixture.mjs';
+import { api, fixedProvider, persist, repository, waitFor } from './execution-fixture.mjs';
+import { infrastructureFixture as fixture } from './infrastructure-fixture.mjs';
 import { infrastructureProvider } from './infrastructure-provider.mjs';
 import { implementationFiles, integrationProvider } from './integration-provider.mjs';
 
@@ -41,7 +42,11 @@ for (const [scenario, expected] of Object.entries(modelExpected)) {
     assert.deepEqual(contract.agents.retry, { enabled: true, maxRetries: 2, providerMaxRetries: 0 });
     const running = pi.flow(`start ${f.spec.number}`, true);
     if (scenario === 'model-cancel-retry') {
-      await waitFor(() => pi.notices.some(message => message.startsWith('MODEL_RETRY: ')), 'SDK retry did not reach its cancellation boundary', 600_000);
+      let flowSettled = false;
+      void running.then(() => { flowSettled = true; }, () => { flowSettled = true; });
+      const retryObserved = () => pi.notices.some(message => message.startsWith('MODEL_RETRY: '));
+      await waitFor(() => retryObserved() || flowSettled, 'SDK retry did not reach its cancellation boundary', 600_000);
+      assert.equal(retryObserved(), true, 'flow settled before the actual SDK retry boundary; target not reached');
       assert.equal((await pi.request('new_session')).success, true);
     }
     const output = await running; fixed.assertHealthy();
