@@ -38,6 +38,8 @@
 
 改为 host alias 后的无网络写入诊断进一步确认：宿主真实 role 的 stream context 仅含 messages，工具状态位于 transcript，不在旧 context.tools 字段中。必须通过同一宿主 SDK 的 getCurrentTools 读取当前声明；否则实施会被错误归为 review，即使 runtime-create 已观察到也不能证明替身真正接入。诊断实际运行 pi、SDK、固定 HTTP 和一次受控写，未调用 GitHub/OpenAI，不作为产品验收。正式场景保存安全 toolNames 并仍要求真实 HTTP 初始缺陷、已发布 failure 与后续 OpenAI repair，不能用诊断结果替代端到端结果。
 
+同一固定 provider 经 models.json 文件加载与 SDK registerProvider 动态注册的输入契约不同：文件 loader 会补默认模型元数据，动态注册必须显式提供 name、input 和 cost。实际诊断已观察过“注册成功/getModel存在，但真实role在请求前错误退出且零HTTP/零写入”；因此不能只检查配置可读。fixture声明完整合成模型元数据，动态注册后的实际固定HTTP请求及受控写必须成功，随后仍以完整远端修复验收为准。
+
 共享执行 helper 对唯一仓库的 allowlist 扩展来自 #10，不复制进程/parser。没有单元测试、凭据复制、原始会话公开或源码边改边验。最终冻结提交后运行；保留失败现场及原始报告。
 
 7. `review-progress`：先由确定性独立审查指出两个真实可见 stderr 契约缺陷；两次真实代码修复分别补齐诊断和调用提示。每次 review 逐项绑定旧引用与当前原始 blob。外部验收从最终 M 再执行 CLI，检查完整诊断输出、历史 failure 报告和同一 PR；改措辞或遗漏旧阻断不能算解决。

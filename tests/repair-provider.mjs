@@ -148,7 +148,8 @@ export async function repairProvider(t, scenario) {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
   const provider = { api: 'openai-completions', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 'synthetic-local-only',
-    models: [{ id: 'fixed', reasoning: false, contextWindow: 64000, maxTokens: 16384 }] };
+    models: [{ id: 'fixed', name: 'Synthetic repair fixture', reasoning: false, input: ['text'],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 64000, maxTokens: 16384 }] };
   return { requests, reviews, provider, barrier, barrierUrl: `http://127.0.0.1:${server.address().port}/_fixture/upstream-submitted`,
     model: { provider: 'flow-repair-fixture', id: 'fixed' }, config: { providers: { 'flow-repair-fixture': provider } },
     async configure(project, upstreamTicket) { upstream = upstreamTicket; files = await repairFiles(project); initialCalls = [{ name: 'write', arguments: { path: 'fixture.mjs', content: files.acceptance } }]; },
