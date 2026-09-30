@@ -4,7 +4,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { access, lstat, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { api, fixture, git, repository, created, persist } from './execution-fixture.mjs';
+import { api, fixture, git, repository, created, persist, results } from './execution-fixture.mjs';
 import { names, baselines, requests, fixedFiles } from './scheduling-cases.mjs';
 import { schedulingHarness } from './scheduling-harness.mjs';
 import { schedulingProvider } from './scheduling-provider.mjs';
@@ -49,10 +49,17 @@ export async function graphFixture(t, scenario) {
   // pi teardown is registered by fixture before this hook. Preserve remote/Git
   // facts; remove only this scenario's now-unowned socket, never another owner.
   t.after(async () => {
+    const failed = results.find(result => result.scenario === scenario && result.result === 'failed');
+    if (failed) { Object.assign(failed, harness.diagnostics()); await persist(); }
     let before; try { before = await lstat(socket); } catch (error) { if (error.code === 'ENOENT') return; throw error; }
-    assert.equal(before.isSocket(), true);
-    let noOwner = false; try { execFileSync('lsof', ['-t', socket], { stdio: 'pipe' }); } catch (error) { noOwner = error.status === 1; }
-    assert.equal(noOwner, true); assert.equal((await lstat(socket)).ino, before.ino); await rm(socket);
+    assert.equal(before.isSocket(), true); assert.equal(before.uid, process.getuid());
+    let noOwner = false;
+    try { execFileSync('lsof', ['-t', socket], { stdio: 'pipe' }); }
+    catch (error) { noOwner = error.status === 1 && !error.signal && error.stdout?.length === 0 && error.stderr?.length === 0; }
+    assert.equal(noOwner, true);
+    const after = await lstat(socket);
+    assert.equal(after.isSocket(), true); assert.equal(after.uid, before.uid); assert.equal(after.dev, before.dev); assert.equal(after.ino, before.ino);
+    await rm(socket);
   });
   let observation;
   const verifiedGates = new Map();

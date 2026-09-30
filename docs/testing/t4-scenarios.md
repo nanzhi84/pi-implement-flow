@@ -28,3 +28,9 @@
 ## 独立审查前补充的并行停止边界
 
 `parallel-unknown-retains-cleanup` 在真实两个实现会话重叠时，让 A 的 Ticket push 实际成功后 CLI 返回失败，且 pi 进程内该精确 ref 的 ls-remote 回读也明确不可用（外部验收独立读真实 ref），B 的模型响应尚未完成。必须先冻结普通派工并取消 B，B 的 cleanup 仍由同一活动池允许。事件屏障在 cleanup 未结束时检查资源未提前释放、竞争 controller 无法取得仓库。释放屏障后，真实 cleanup 命令先运行，再由可控故障重新留下合成资源并返回失败；B 资源必须 retained，首个 remote unknown 不能被后续 cleanup/cancel 覆盖。断言只有 feature 与 A Ticket 两次 push、没有 PR/merge/close、A 远端实际 SHA 保留、B 无远端分支、Spec/Tickets open、main 不变。该新增场景补的是并行冻结与清理的实际组合缺口，不是实现镜像单测；固定 HTTP 与失败注入均显式披露。
+
+## 实际失败后的夹具与只读诊断修正（修改前）
+
+86a 的 unknown 场景未成功建立故障前提，A 被产品按真实远端结果合法交付，B 固定模型仍在等取消 cleanup；原测试最终失败，不能追认通过。精确 ref 的 controller-only 读回阻断应在 A 实际 push spawn 前同步 arm，不能依赖 wrapper 完成独立读回并输出 marker 才生效。wrapper 仍须执行真实 push、独立精确读回和 observer 确认，缺一不得生成 applied 证据。前提失败用无原始诊断的阶段枚举通知 harness；unknown 场景的意外 A Delivery、flow 终态或有限测试等待上限均应结束等待并让现有 teardown 关闭本场 pi。所有计时器在成功、失败和 close 清理，原有远端、资源、并发、ownership 和零额外写入断言不变。
+
+同一冻结源的数次 fresh 场景在不同阶段出现 GitHub EOF；已确认的只有安全 FailureDetail，不能推断路由根因。新增透明观察只记录批准合成仓库的实际只读 gh api 请求：公开路径（不含 query）、受限 GraphQL 操作标签、顺序、最后一个受控阶段以及启动/退出结果。既不改变请求/响应/重试，也不记录 headers、原始 stderr、认证、正文或任意私有路径。失败工件保存这组安全记录以定位下一次实际失败，历史报告原字节和源 SHA 不改。仅测试变动的验收组合须明确每个原始 tested SHA，并证明产品源码/配置/依赖字节相同，不将旧报告伪标新 SHA。
